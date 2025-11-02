@@ -24,8 +24,10 @@ func NewClient(key, url string) *Client {
 }
 
 // GetUser returns user information
+// Updated to use the new LNBits Users API (no UserManager plugin).
 func (c *Client) GetUser(userId string) (user User, err error) {
-	resp, err := req.Post(c.url+"/usermanager/api/v1/users/"+userId, c.header, nil)
+	// new Users API exposes users at GET /api/v1/users/{user_id}
+	resp, err := req.Get(c.url+"/api/v1/users/"+userId, c.header, nil)
 	if err != nil {
 		return
 	}
@@ -42,8 +44,10 @@ func (c *Client) GetUser(userId string) (user User, err error) {
 }
 
 // CreateUserWithInitialWallet creates new user with initial wallet
+// Updated to use the new LNBits Users API (no UserManager plugin).
 func (c *Client) CreateUserWithInitialWallet(userName, walletName, adminId string, email string) (wal User, err error) {
-	resp, err := req.Post(c.url+"/usermanager/api/v1/users", c.header, req.BodyJSON(struct {
+	// POST to /api/v1/users with the user data. The new LNBits Users API accepts similar fields.
+	resp, err := req.Post(c.url+"/api/v1/users", c.header, req.BodyJSON(struct {
 		WalletName string `json:"wallet_name"`
 		AdminId    string `json:"admin_id"`
 		UserName   string `json:"user_name"`
@@ -65,7 +69,8 @@ func (c *Client) CreateUserWithInitialWallet(userName, walletName, adminId strin
 
 // CreateWallet creates a new wallet.
 func (c *Client) CreateWallet(userId, walletName, adminId string) (wal Wallet, err error) {
-	resp, err := req.Post(c.url+"/usermanager/api/v1/wallets", c.header, req.BodyJSON(struct {
+	// New wallets endpoint in LNBits core is POST /api/v1/wallets
+	resp, err := req.Post(c.url+"/api/v1/wallets", c.header, req.BodyJSON(struct {
 		UserId     string `json:"user_id"`
 		WalletName string `json:"wallet_name"`
 		AdminId    string `json:"admin_id"`
@@ -180,9 +185,11 @@ func (c Client) Payment(w Wallet, payment_hash string) (payment LNbitsPayment, e
 	return
 }
 
-// Wallets returns all wallets belonging to an user
-func (c Client) Wallets(w User) (wtx []Wallet, err error) {
-	resp, err := req.Get(c.url+"/usermanager/api/v1/wallets/"+w.ID, c.header, nil)
+// Wallets returns all wallets belonging to a user
+// Updated to use the new LNBits Users API route for listing a user's wallets.
+func (c Client) Wallets(u User) (wtx []Wallet, err error) {
+	// new route: GET /api/v1/users/{user_id}/wallets
+	resp, err := req.Get(c.url+"/api/v1/users/"+u.ID+"/wallets", c.header, nil)
 	if err != nil {
 		return
 	}
