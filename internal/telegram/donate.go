@@ -141,7 +141,12 @@ func (bot TipBot) parseCmdDonHandler(ctx intercept.Context) error {
 		// The caller of this handler should treat non-nil as "did not handle".
 		return fmt.Errorf("skipped donation conversion for reply-to-other-user")
 	}
-
+	
+	// SAFETY CHECK -- only rewrite message if the original command really was /donate
+	if !strings.HasPrefix(m.Text, "/donate") {
+		return fmt.Errorf("not a donation command; skipping donation handler")
+	}
+	
 	// try to extract amount (if not present, decodeAmountFromCommand will return error)
 	amount, err := decodeAmountFromCommand(m.Text)
 	if err != nil || amount < 1 {
