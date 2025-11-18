@@ -51,11 +51,12 @@ func (txlist *TransactionsList) printTransactions(ctx intercept.Context) string 
 			}
 		}
 		// timestr := time.Unix(int64(p.Time), 0).UTC().Format("2 Jan 06 15:04")
-		tInt, err := p.Time.Int64()
-	    if err != nil {
-	        tInt = 0 // Optionally log or handle this error!
-	    }
-	    timestr := time.Unix(tInt, 0).UTC().Format("2 Jan 06 15:04")
+		layout := "2006-01-02T15:04:05.999999-07:00"
+    	t, err := time.Parse(layout, p.Time)
+    	if err != nil {
+        	t = time.Unix(0, 0) // fallback
+    	}
+    	timestr := t.UTC().Format("2 Jan 06 15:04")
 		txstr += fmt.Sprintf("` %s`", timestr)
 		txstr += fmt.Sprintf("` %+d sat`", p.Amount/1000)
 		if p.Fee > 0 {
