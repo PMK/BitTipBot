@@ -27,7 +27,7 @@ func NewClient(key, url string) *Client {
 // Updated to use the new LNBits Users API (no UserManager plugin).
 func (c *Client) GetUser(userId string) (user User, err error) {
 	// new Users API exposes users at GET /api/v1/users/{user_id}
-	resp, err := req.Get(c.url+"/api/v1/users/"+userId, c.header, nil)
+	resp, err := req.Get(c.url+"/users/api/v1/user/"+userId, c.header, nil)
 	if err != nil {
 		return
 	}
@@ -47,7 +47,7 @@ func (c *Client) GetUser(userId string) (user User, err error) {
 // Updated to use the new LNBits Users API (no UserManager plugin).
 func (c *Client) CreateUserWithInitialWallet(userName, walletName, adminId string, email string) (wal User, err error) {
 	// POST to /api/v1/users with the user data. The new LNBits Users API accepts similar fields.
-	resp, err := req.Post(c.url+"/api/v1/users", c.header, req.BodyJSON(struct {
+	resp, err := req.Post(c.url+"/users/api/v1/user", c.header, req.BodyJSON(struct {
 		WalletName string `json:"wallet_name"`
 		AdminId    string `json:"admin_id"`
 		UserName   string `json:"user_name"`
