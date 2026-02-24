@@ -47,21 +47,24 @@ func NewBot() TipBot {
 	// create sqlite databases
 	dbs := AutoMigration()
 	limiter.Start()
-	return TipBot{
+	poller := &ReactionPoller{Timeout: 60 * time.Second}
+	bot := TipBot{
 		DB:       dbs,
 		Client:   lnbits.NewClient(internal.Configuration.Lnbits.AdminKey, internal.Configuration.Lnbits.Url),
 		Bunt:     createBunt(internal.Configuration.Database.BuntDbPath),
 		ShopBunt: createBunt(internal.Configuration.Database.ShopBuntDbPath),
-		Telegram: newTelegramBot(),
+		Telegram: newTelegramBot(poller),
 		Cache:    Cache{GoCacheStore: gocacheStore},
 	}
+	poller.bot = &bot
+	return bot
 }
 
 // newTelegramBot will create a new Telegram bot.
-func newTelegramBot() *tb.Bot {
+func newTelegramBot(poller tb.Poller) *tb.Bot {
 	tgb, err := tb.NewBot(tb.Settings{
 		Token:     internal.Configuration.Telegram.ApiKey,
-		Poller:    &tb.LongPoller{Timeout: 60 * time.Second},
+		Poller:    poller,
 		ParseMode: tb.ModeMarkdown,
 		Verbose:   false,
 	})

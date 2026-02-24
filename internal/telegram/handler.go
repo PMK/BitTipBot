@@ -116,6 +116,22 @@ func (bot TipBot) getHandler() []InterceptionWrapper {
 		// 	},
 		// },
 		{
+			Endpoints: []interface{}{"/reaction"},
+			Handler:   bot.reactionHandler,
+			Interceptor: &Interceptor{
+				Before: []intercept.Func{
+					bot.requirePrivateChatInterceptor,
+					bot.localizerInterceptor,
+					bot.logMessageInterceptor,
+					bot.requireUserInterceptor,
+					bot.lockInterceptor,
+				},
+				OnDefer: []intercept.Func{
+					bot.unlockInterceptor,
+				},
+			},
+		},
+		{
 			Endpoints: []interface{}{"/tip", "/t", "/honk", "/zap"},
 			Handler:   bot.tipHandler,
 			Interceptor: &Interceptor{
