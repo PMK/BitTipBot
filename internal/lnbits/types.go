@@ -39,14 +39,20 @@ type User struct {
 }
 
 type Settings struct {
-	ID      string          `json:"id" gorm:"primarykey"`
-	Display DisplaySettings `gorm:"embedded;embeddedPrefix:display_"`
-	Node    NodeSettings    `gorm:"embedded;embeddedPrefix:node_"`
-	Nostr   NostrSettings   `gorm:"embedded;embeddedPrefix:nostr_"`
+	ID       string           `json:"id" gorm:"primarykey"`
+	Display  DisplaySettings  `gorm:"embedded;embeddedPrefix:display_"`
+	Node     NodeSettings     `gorm:"embedded;embeddedPrefix:node_"`
+	Nostr    NostrSettings    `gorm:"embedded;embeddedPrefix:nostr_"`
+	Reaction ReactionSettings `gorm:"embedded;embeddedPrefix:reaction_"`
 }
 
 type DisplaySettings struct {
 	DisplayCurrency string `json:"displaycurrency"`
+}
+type ReactionSettings struct {
+	ThumbsUpAmount int64 `json:"thumbs_up_amount"`
+	HeartAmount    int64 `json:"heart_amount"`
+	ThunderAmount    int64 `json:"thunder_amount"`
 }
 type NostrSettings struct {
 	PubKey string `json:"pubkey"`
