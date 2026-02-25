@@ -155,11 +155,9 @@ func diffReactionEmoji(reaction gjson.Result) string {
 // normalizeEmoji normalizes heart emoji variants.
 // Telegram sends "❤" (U+2764), but users might also use "❤️" (U+2764+FE0F).
 func normalizeEmoji(emoji string) string {
-	// Strip variation selector FE0F from heart
-	if strings.TrimRight(emoji, "\uFE0F") == "❤" {
-		return "❤"
-	}
-	return emoji
+    // Strip variation selector FE0F
+    normalized := strings.TrimRight(emoji, "\uFE0F")
+    return normalized
 }
 
 // reactionHandler handles the /reaction command (DM only).
