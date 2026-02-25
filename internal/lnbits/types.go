@@ -52,6 +52,7 @@ type DisplaySettings struct {
 type ReactionSettings struct {
 	ThumbsUpAmount int64 `json:"thumbs_up_amount"`
 	HeartAmount    int64 `json:"heart_amount"`
+	ThunderAmount    int64 `json:"thunder_amount"`
 }
 type NostrSettings struct {
 	PubKey string `json:"pubkey"`
