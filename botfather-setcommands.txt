@@ -5,13 +5,17 @@
 3 - Select your tip bot
 4 - Paste this:
 
+start - View your own @btip.nl lightning address. 
 help - Read the help.
 balance - Check balance. 
-transactions - List transactions
 tip - Reply to a message to tip: /tip 50
+reaction - Set custom emoji-reaction tip values.
 send - Send funds to a user: /send 100 @LightningTipBot
 invoice - Receive with Lightning: /invoice 1000
 pay - Pay with Lightning: /pay lnbc10n1ps...
+lnurl - See your own LNURL QR-code.
 donate - Donate: /donate 1000
 faucet - Create a faucet: /faucet 2100 21 
+tipjar - Create a tipjar: /tipjar 100 10
 advanced - Advanced help
+transactions - See your recent transaction history.
