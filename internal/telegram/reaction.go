@@ -36,7 +36,7 @@ func (bot *TipBot) handleReaction(reaction gjson.Result) {
 	// Only process thumbs-up and heart reactions
 	// Telegram sends "❤" (U+2764), not "❤️" (U+2764+FE0F)
 	normalizedEmoji := normalizeEmoji(emoji)
-	if normalizedEmoji != "👍" && normalizedEmoji != "❤" {
+	if normalizedEmoji != "👍" && normalizedEmoji != "❤" && normalizedEmoji != "⚡" {
 		return
 	}
 
@@ -66,6 +66,8 @@ func (bot *TipBot) handleReaction(reaction gjson.Result) {
 		amount = fromUser.Settings.Reaction.ThumbsUpAmount
 	case "❤":
 		amount = fromUser.Settings.Reaction.HeartAmount
+	case "⚡":
+		amount = fromUser.Settings.Reaction.ThunderAmount
 	}
 	if amount <= 0 {
 		return
@@ -180,20 +182,21 @@ func (bot *TipBot) reactionHandler(ctx intercept.Context) (intercept.Context, er
 	if len(splits) == 1 {
 		thumbsUp := user.Settings.Reaction.ThumbsUpAmount
 		heart := user.Settings.Reaction.HeartAmount
-		msg := fmt.Sprintf("*Reaction tip settings:*\n👍 = %d sat\n❤ = %d sat\n\nUse `/reaction 👍 100` to set amounts.", thumbsUp, heart)
+		thunder := user.Settings.Reaction.ThunderAmount
+		msg := fmt.Sprintf("*Reaction tip settings:*\n👍 = %d sat\n❤ = %d sat\n⚡ = %d sat\n\nUse `/reaction 👍 100` to set amounts.", thumbsUp, heart, thunder)
 		bot.trySendMessage(m.Sender, msg)
 		return ctx, nil
 	}
 
 	// /reaction <emoji> <amount>
 	if len(splits) < 3 {
-		bot.trySendMessage(m.Sender, "Usage: `/reaction 👍 100` or `/reaction ❤ 50`")
+		bot.trySendMessage(m.Sender, "Usage: `/reaction 👍 100` or `/reaction ❤ 50` or `/reaction ⚡ 50`")
 		return ctx, nil
 	}
 
 	emoji := normalizeEmoji(splits[1])
-	if emoji != "👍" && emoji != "❤" {
-		bot.trySendMessage(m.Sender, "Supported emojis: 👍 and ❤")
+	if emoji != "👍" && emoji != "❤" && emoji != "⚡" {
+		bot.trySendMessage(m.Sender, "Supported emojis: 👍 and ❤ and ⚡")
 		return ctx, nil
 	}
 
@@ -208,6 +211,8 @@ func (bot *TipBot) reactionHandler(ctx intercept.Context) (intercept.Context, er
 		user.Settings.Reaction.ThumbsUpAmount = amount
 	case "❤":
 		user.Settings.Reaction.HeartAmount = amount
+	case "⚡":
+		user.Settings.Reaction.ThunderAmount = amount
 	}
 
 	err = UpdateUserRecord(user, *bot)
