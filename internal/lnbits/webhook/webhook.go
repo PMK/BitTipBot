@@ -65,6 +65,9 @@ func NewServer(bot *telegram.TipBot) *Server {
 	return apiServer
 }
 
+// GetUserByWalletId looks up a user by their wallet ID.
+// The Wallet is embedded in the User struct with GORM prefix "wallet_", so the
+// column for Wallet.ID in the users table is "wallet_id".
 func (w *Server) GetUserByWalletId(walletId string) (*lnbits.User, error) {
 	user := &lnbits.User{}
 	tx := w.database.Where("wallet_id = ?", walletId).First(user)
@@ -83,7 +86,7 @@ func (w *Server) newRouter() *mux.Router {
 func (w *Server) receive(writer http.ResponseWriter, request *http.Request) {
 	log.Debugln("[Webhook] Received request")
 	webhookEvent := Webhook{}
-	// need to delete the header otherwise the Decode will fail
+	// Strip content-length header to prevent Decode failures on some clients
 	request.Header.Del("content-length")
 	err := json.NewDecoder(request.Body).Decode(&webhookEvent)
 	if err != nil {
@@ -91,36 +94,55 @@ func (w *Server) receive(writer http.ResponseWriter, request *http.Request) {
 		writer.WriteHeader(400)
 		return
 	}
+
+	// Ignore pending (unpaid) payments — only process settled payments
+	if webhookEvent.Pending {
+		writer.WriteHeader(200)
+		return
+	}
+
 	user, err := w.GetUserByWalletId(webhookEvent.WalletID)
 	if err != nil {
-		log.Errorf("[Webhook] Error getting user: %s", err.Error())
+		log.Errorf("[Webhook] Error getting user for wallet_id %s: %s", webhookEvent.WalletID, err.Error())
 		writer.WriteHeader(400)
 		return
 	}
-	log.Infoln(fmt.Sprintf("[⚡️ WebHook] User %s (%d) received invoice of %d sat.", telegram.GetUserStr(user.Telegram), user.Telegram.ID, webhookEvent.Amount/1000))
 
+	log.Infoln(fmt.Sprintf("[⚡️ WebHook] User %s (%d) received invoice of %d sat.",
+		telegram.GetUserStr(user.Telegram), user.Telegram.ID, webhookEvent.Amount/1000))
+
+	// Always respond 200 immediately so LNbits doesn't retry
 	writer.WriteHeader(200)
 
-	// trigger invoice events
+	// Try to find and fire a registered invoice callback (e.g. from LNURL-pay or lightning address)
 	txInvoiceEvent := &telegram.InvoiceEvent{Invoice: &telegram.Invoice{PaymentHash: webhookEvent.PaymentHash}}
 	err = w.buntdb.Get(txInvoiceEvent)
-	if err != nil {
-		log.Errorln(err)
-	} else {
-		// do something with the event
-		if c := telegram.InvoiceCallback[txInvoiceEvent.Callback]; c.Function != nil {
-			if err := telegram.AssertEventType(txInvoiceEvent, c.Type); err != nil {
-				log.Errorln(err)
+	if err == nil {
+		// An invoice event was registered for this payment hash
+		c := telegram.InvoiceCallback[txInvoiceEvent.Callback]
+		if c.Function != nil {
+			// Validate the event type before dispatching
+			if assertErr := telegram.AssertEventType(txInvoiceEvent, c.Type); assertErr != nil {
+				log.Errorln(assertErr)
+				// Fall through to send the generic notification below
+			} else {
+				go c.Function(txInvoiceEvent)
 				return
 			}
-			go c.Function(txInvoiceEvent)
-			return
 		}
+		// Callback key was registered but no handler found — fall through to generic notification
+		log.Warnf("[Webhook] No callback handler for invoice event callback=%d, payment_hash=%s",
+			txInvoiceEvent.Callback, webhookEvent.PaymentHash)
 	}
 
-	// fallback: send a message to the user if there is no callback for this invoice
-	_, err = w.bot.Send(user.Telegram, fmt.Sprintf(i18n.Translate(user.Telegram.LanguageCode, "invoiceReceivedMessage"), webhookEvent.Amount/1000))
-	if err != nil {
-		log.Errorln(err)
+	// Fallback: send a plain "you received X sat" message to the user
+	_, sendErr := w.bot.Send(
+		user.Telegram,
+		fmt.Sprintf(i18n.Translate(user.Telegram.LanguageCode, "invoiceReceivedMessage"),
+			webhookEvent.Amount/1000),
+	)
+	if sendErr != nil {
+		log.Errorf("[Webhook] Failed to send notification to user %s: %s",
+			telegram.GetUserStr(user.Telegram), sendErr.Error())
 	}
 }

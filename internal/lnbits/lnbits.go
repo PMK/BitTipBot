@@ -23,62 +23,69 @@ func NewClient(key, url string) *Client {
 	}
 }
 
-// GetUser returns user information
-// Updated to use the new LNBits Users API (no UserManager plugin).
+// GetUser returns user information from the LNbits Users extension API.
+// Endpoint: GET /users/api/v1/user/{user_id}
 func (c *Client) GetUser(userId string) (user User, err error) {
-	// new Users API exposes users at GET /api/v1/users/{user_id}
 	resp, err := req.Get(c.url+"/users/api/v1/user/"+userId, c.header, nil)
 	if err != nil {
 		return
 	}
-
 	if resp.Response().StatusCode >= 300 {
 		var reqErr Error
 		resp.ToJSON(&reqErr)
 		err = reqErr
 		return
 	}
-
 	err = resp.ToJSON(&user)
 	return
 }
 
-// CreateUserWithInitialWallet creates new user with initial wallet
-// Updated to use the new LNBits Users API (no UserManager plugin).
-func (c *Client) CreateUserWithInitialWallet(userName, walletName, adminId string, email string) (wal User, err error) {
-	// POST to /api/v1/users with the user data. The new LNBits Users API accepts similar fields.
-	resp, err := req.Post(c.url+"/users/api/v1/user", c.header, req.BodyJSON(struct {
-		WalletName string `json:"wallet_name"`
-		AdminId    string `json:"admin_id"`
-		UserName   string `json:"user_name"`
-		Email      string `json:"email"`
-	}{walletName, adminId, userName, email}))
+// lnbitsCreateUserRequest is the request body accepted by the LNbits v1 Users extension.
+// The API key (admin key) goes in the X-Api-Key header, NOT in the body.
+// The response returns "id" and "username" (mapped to User.ID and User.Name via json tags).
+type lnbitsCreateUserRequest struct {
+	UserName   string `json:"username"`    // LNbits v1 field name
+	WalletName string `json:"wallet_name"` // name for the initial wallet
+}
+
+// CreateUserWithInitialWallet creates a new LNbits user with an initial wallet.
+// It uses the Users extension endpoint POST /users/api/v1/user.
+// The admin credentials are passed via the X-Api-Key header (already set on c.header).
+func (c *Client) CreateUserWithInitialWallet(userName, walletName, adminId string, email string) (user User, err error) {
+	resp, err := req.Post(
+		c.url+"/users/api/v1/user",
+		c.header,
+		req.BodyJSON(lnbitsCreateUserRequest{
+			UserName:   userName,
+			WalletName: walletName,
+		}),
+	)
 	if err != nil {
 		return
 	}
-
 	if resp.Response().StatusCode >= 300 {
 		var reqErr Error
 		resp.ToJSON(&reqErr)
 		err = reqErr
 		return
 	}
-	err = resp.ToJSON(&wal)
+	err = resp.ToJSON(&user)
 	return
 }
 
-// CreateWallet creates a new wallet.
+// CreateWallet creates an additional wallet for an existing LNbits user.
+// Endpoint: POST /users/api/v1/user/{user_id}/wallet
 func (c *Client) CreateWallet(userId, walletName, adminId string) (wal Wallet, err error) {
-	// New wallets endpoint in LNBits core is POST /api/v1/wallets
-	resp, err := req.Post(c.url+"/api/v1/wallets", c.header, req.BodyJSON(struct {
-		UserId     string `json:"user_id"`
-		WalletName string `json:"wallet_name"`
-		AdminId    string `json:"admin_id"`
-	}{userId, walletName, adminId}))
+	resp, err := req.Post(
+		c.url+"/users/api/v1/user/"+userId+"/wallet",
+		c.header,
+		req.BodyJSON(struct {
+			WalletName string `json:"wallet_name"`
+		}{WalletName: walletName}),
+	)
 	if err != nil {
 		return
 	}
-
 	if resp.Response().StatusCode >= 300 {
 		var reqErr Error
 		resp.ToJSON(&reqErr)
@@ -89,9 +96,8 @@ func (c *Client) CreateWallet(userId, walletName, adminId string) (wal Wallet, e
 	return
 }
 
-// Invoice creates an invoice associated with this wallet.
+// Invoice creates a BOLT11 invoice associated with this wallet.
 func (w Wallet) Invoice(params InvoiceParams, c *Client) (lntx Invoice, err error) {
-	// custom header with invoice key
 	invoiceHeader := req.Header{
 		"Content-Type": "application/json",
 		"Accept":       "application/json",
@@ -101,21 +107,18 @@ func (w Wallet) Invoice(params InvoiceParams, c *Client) (lntx Invoice, err erro
 	if err != nil {
 		return
 	}
-
 	if resp.Response().StatusCode >= 300 {
 		var reqErr Error
 		resp.ToJSON(&reqErr)
 		err = reqErr
 		return
 	}
-
 	err = resp.ToJSON(&lntx)
 	return
 }
 
-// Info returns wallet information
+// Info returns wallet information (balance, keys, etc.).
 func (c Client) Info(w Wallet) (wtx Wallet, err error) {
-	// custom header with invoice key
 	invoiceHeader := req.Header{
 		"Content-Type": "application/json",
 		"Accept":       "application/json",
@@ -125,21 +128,18 @@ func (c Client) Info(w Wallet) (wtx Wallet, err error) {
 	if err != nil {
 		return
 	}
-
 	if resp.Response().StatusCode >= 300 {
 		var reqErr Error
 		resp.ToJSON(&reqErr)
 		err = reqErr
 		return
 	}
-
 	err = resp.ToJSON(&wtx)
 	return
 }
 
-// Payments returns wallet payments
+// Payments returns wallet payment history.
 func (c Client) Payments(w Wallet) (wtx Payments, err error) {
-	// custom header with invoice key
 	invoiceHeader := req.Header{
 		"Content-Type": "application/json",
 		"Accept":       "application/json",
@@ -149,21 +149,18 @@ func (c Client) Payments(w Wallet) (wtx Payments, err error) {
 	if err != nil {
 		return
 	}
-
 	if resp.Response().StatusCode >= 300 {
 		var reqErr Error
 		resp.ToJSON(&reqErr)
 		err = reqErr
 		return
 	}
-
 	err = resp.ToJSON(&wtx)
 	return
 }
 
-// Payment state of a payment
+// Payment returns the state of a single payment by hash.
 func (c Client) Payment(w Wallet, payment_hash string) (payment LNbitsPayment, err error) {
-	// custom header with invoice key
 	invoiceHeader := req.Header{
 		"Content-Type": "application/json",
 		"Accept":       "application/json",
@@ -173,41 +170,35 @@ func (c Client) Payment(w Wallet, payment_hash string) (payment LNbitsPayment, e
 	if err != nil {
 		return
 	}
-
 	if resp.Response().StatusCode >= 300 {
 		var reqErr Error
 		resp.ToJSON(&reqErr)
 		err = reqErr
 		return
 	}
-
 	err = resp.ToJSON(&payment)
 	return
 }
 
-// Wallets returns all wallets belonging to a user
-// Updated to use the new LNBits Users API route for listing a user's wallets.
+// Wallets returns all wallets belonging to a user.
+// Uses the Users extension endpoint: GET /users/api/v1/user/{user_id}/wallets
 func (c Client) Wallets(u User) (wtx []Wallet, err error) {
-	// new route: GET /api/v1/users/{user_id}/wallets
-	resp, err := req.Get(c.url+"/api/v1/users/"+u.ID+"/wallets", c.header, nil)
+	resp, err := req.Get(c.url+"/users/api/v1/user/"+u.ID+"/wallets", c.header, nil)
 	if err != nil {
 		return
 	}
-
 	if resp.Response().StatusCode >= 300 {
 		var reqErr Error
 		resp.ToJSON(&reqErr)
 		err = reqErr
 		return
 	}
-
 	err = resp.ToJSON(&wtx)
 	return
 }
 
 // Pay pays a given invoice with funds from the wallet.
 func (w Wallet) Pay(params PaymentParams, c *Client) (wtx Invoice, err error) {
-	// custom header with admin key
 	adminHeader := req.Header{
 		"Content-Type": "application/json",
 		"Accept":       "application/json",
@@ -219,14 +210,12 @@ func (w Wallet) Pay(params PaymentParams, c *Client) (wtx Invoice, err error) {
 	if err != nil {
 		return
 	}
-
 	if resp.Response().StatusCode >= 300 {
 		var reqErr Error
 		resp.ToJSON(&reqErr)
 		err = reqErr
 		return
 	}
-
 	err = resp.ToJSON(&wtx)
 	return
 }

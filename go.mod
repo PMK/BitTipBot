@@ -80,6 +80,7 @@ require (
 	github.com/miekg/dns v1.1.43 // indirect
 	github.com/nbd-wtf/ln-decodepay v1.5.1 // indirect
 	github.com/pegasus-kv/thrift v0.13.0 // indirect
+	github.com/pkg/errors v0.9.1 // indirect
 	github.com/spf13/cast v1.5.0 // indirect
 	github.com/tidwall/btree v0.6.1 // indirect
 	github.com/tidwall/grect v0.1.3 // indirect
@@ -101,6 +102,7 @@ require (
 	gopkg.in/cenkalti/backoff.v1 v1.1.0 // indirect
 	gopkg.in/natefinch/lumberjack.v2 v2.0.0 // indirect
 	gopkg.in/tomb.v2 v2.0.0-20161208151619-d5d1b5820637 // indirect
+	gopkg.in/tucnak/telebot.v2 v2.5.0 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	k8s.io/apimachinery v0.0.0-20191123233150-4c4803ed55e3 // indirect
 )

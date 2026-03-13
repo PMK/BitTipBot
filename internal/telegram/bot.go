@@ -139,11 +139,12 @@ func (bot *TipBot) Start() {
 	go bot.Telegram.Start()
 
 	go bot.restartPersistedTickets()
-	// gracefully shutdown
-	exit := make(chan os.Signal, 1) // we need to reserve to buffer size 1, so the notifier are not blocked
-	// we need to catch SIGTERM and SIGSTOP
-	signal.Notify(exit, os.Interrupt, syscall.SIGTERM, syscall.SIGSTOP)
+
+	// gracefully shutdown on interrupt or termination signal.
+	// syscall.SIGSTOP is not catchable on any platform and is not defined on
+	// Windows, so it must not be passed to signal.Notify.
+	exit := make(chan os.Signal, 1)
+	signal.Notify(exit, os.Interrupt, syscall.SIGTERM)
 	<-exit
-	// gracefully shutdown
 	bot.GracefulShutdown()
 }
