@@ -22,12 +22,13 @@ type Client struct {
 }
 
 // User represents a LNbits user stored in the local database.
-// The json tags on ID and Name must match what the LNbits v1 Users API returns:
-//   - "id"       → User.ID
-//   - "username" → User.Name  (LNbits v1 uses "username", not "name")
+// IMPORTANT: the json tag on Name must stay "name" because this struct is
+// serialized to/from buntdb (key-value store) throughout the codebase.
+// The LNbits v1 API returns "username" instead of "name"; that mismatch is
+// handled by the lnbitsUserResponse intermediate struct in lnbits.go.
 type User struct {
 	ID           string       `json:"id"`
-	Name         string       `json:"username" gorm:"primaryKey"` // LNbits v1 returns "username"
+	Name         string       `json:"name" gorm:"primaryKey"`
 	Initialized  bool         `json:"initialized"`
 	Telegram     *tb.User     `gorm:"embedded;embeddedPrefix:telegram_"`
 	Wallet       *Wallet      `gorm:"embedded;embeddedPrefix:wallet_"`

@@ -42,10 +42,18 @@ func (c *Client) GetUser(userId string) (user User, err error) {
 
 // lnbitsCreateUserRequest is the request body accepted by the LNbits v1 Users extension.
 // The API key (admin key) goes in the X-Api-Key header, NOT in the body.
-// The response returns "id" and "username" (mapped to User.ID and User.Name via json tags).
 type lnbitsCreateUserRequest struct {
 	UserName   string `json:"username"`    // LNbits v1 field name
 	WalletName string `json:"wallet_name"` // name for the initial wallet
+}
+
+// lnbitsUserResponse is an intermediate struct that matches the LNbits v1 API
+// response JSON exactly. The API returns "username" but our internal User struct
+// uses json:"name" (to stay compatible with buntdb serialization throughout the
+// codebase). We decode into this first, then map the fields to User.
+type lnbitsUserResponse struct {
+	ID       string `json:"id"`
+	UserName string `json:"username"`
 }
 
 // CreateUserWithInitialWallet creates a new LNbits user with an initial wallet.
@@ -69,7 +77,13 @@ func (c *Client) CreateUserWithInitialWallet(userName, walletName, adminId strin
 		err = reqErr
 		return
 	}
-	err = resp.ToJSON(&user)
+	// Decode via the intermediate struct to handle the "username" vs "name" mismatch
+	var apiResp lnbitsUserResponse
+	if err = resp.ToJSON(&apiResp); err != nil {
+		return
+	}
+	user.ID = apiResp.ID
+	user.Name = apiResp.UserName
 	return
 }
 
