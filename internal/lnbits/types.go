@@ -31,7 +31,7 @@ type User struct {
 	Name         string       `json:"name" gorm:"primaryKey"`
 	Initialized  bool         `json:"initialized"`
 	Telegram     *tb.User     `gorm:"embedded;embeddedPrefix:telegram_"`
-	Wallet       Wallet       `gorm:"embedded;embeddedPrefix:wallet_"`
+	Wallet       Wallet       `gorm:"embedded"`
 	StateKey     UserStateKey `json:"stateKey"`
 	StateData    string       `json:"stateData"`
 	CreatedAt    time.Time    `json:"created"`
@@ -130,12 +130,12 @@ func (err Error) Error() string {
 }
 
 type Wallet struct {
-	ID       string `json:"id" gorm:"id"`
-	Adminkey string `json:"adminkey"`
-	Inkey    string `json:"inkey"`
-	Balance  int64  `json:"balance"`
-	Name     string `json:"name"`
-	User     string `json:"user"`
+	ID       string `json:"id"       gorm:"column:wallet_id"`
+	Adminkey string `json:"adminkey" gorm:"column:wallet_adminkey"`
+	Inkey    string `json:"inkey"    gorm:"column:wallet_inkey"`
+	Balance  int64  `json:"balance"  gorm:"column:wallet_balance"`
+	Name     string `json:"name"     gorm:"column:wallet_name"`
+	User     string `json:"user"     gorm:"column:wallet_user"`
 }
 
 type Payment struct {
