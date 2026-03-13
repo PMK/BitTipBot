@@ -131,6 +131,23 @@ func (w Wallet) Invoice(params InvoiceParams, c *Client) (lntx Invoice, err erro
 	return
 }
 
+// InvoiceForWallet creates an invoice for any wallet using the admin key.
+func (c *Client) InvoiceForWallet(walletID string, params InvoiceParams) (Invoice, error) {
+	params.Out = false
+	var result Invoice
+	resp, err := req.Post(c.url+"/api/v1/payments", c.header, req.BodyJSON(&params))
+	if err != nil {
+		return result, err
+	}
+	if resp.Response().StatusCode >= 300 {
+		var reqErr Error
+		resp.ToJSON(&reqErr)
+		return result, reqErr
+	}
+	err = resp.ToJSON(&result)
+	return result, err
+}
+
 // Info returns wallet information (balance, keys, etc.).
 func (c Client) Info(w Wallet) (wtx Wallet, err error) {
 	invoiceHeader := req.Header{

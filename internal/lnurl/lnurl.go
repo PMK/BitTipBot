@@ -357,13 +357,13 @@ func (w Lnurl) serveLNURLpSecond(username string, amount_msat int64, comment str
 		}
 	}
 
-	invoice, err := user.Wallet.Invoice(
+	invoice, err := w.c.InvoiceForWallet(
+		user.Wallet.ID,
 		lnbits.InvoiceParams{
 			Amount:          amount_msat / 1000,
 			Out:             false,
 			DescriptionHash: descriptionHash,
-			Webhook:         w.WebhookServer},
-		w.c)
+			Webhook:         w.WebhookServer})
 	if err != nil {
 		err = fmt.Errorf("[serveLNURLpSecond] Couldn't create invoice: %v", err.Error())
 		resp = &lnurl.LNURLPayValues{
