@@ -196,7 +196,7 @@ func (bot *TipBot) acceptInlineReceiveHandler(ctx intercept.Context) (intercept.
 		log.Warnln(errmsg)
 	}
 
-	if from.Wallet == nil || balance < inlineReceive.Amount {
+	if from.Wallet.ID == "" || balance < inlineReceive.Amount {
 		// if user has no wallet, show invoice
 		bot.tryEditMessage(inlineReceive.Message, inlineReceive.MessageText, &tb.ReplyMarkup{})
 		// runtime.IgnoreError(inlineReceive.Set(inlineReceive, bot.Bunt))

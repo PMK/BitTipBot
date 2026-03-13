@@ -61,7 +61,7 @@ type SendData struct {
 func (bot *TipBot) sendHandler(ctx intercept.Context) (intercept.Context, error) {
 	bot.anyTextHandler(ctx)
 	user := LoadUser(ctx)
-	if user.Wallet == nil {
+	if user.Wallet.ID == "" {
 		return ctx, errors.Create(errors.UserNoWalletError)
 	}
 
@@ -236,7 +236,7 @@ func (bot *TipBot) sendHandler(ctx intercept.Context) (intercept.Context, error)
 // then ask for an amount).
 func (bot *TipBot) keyboardSendHandler(ctx intercept.Context) (intercept.Context, error) {
 	user := LoadUser(ctx)
-	if user.Wallet == nil {
+	if user.Wallet.ID == "" {
 		return ctx, errors.Create(errors.UserNoWalletError)
 	}
 	enterUserStateData := &EnterUserStateData{

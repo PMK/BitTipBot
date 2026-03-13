@@ -113,7 +113,7 @@ func (bot *TipBot) makeTransactionsKeyboard(ctx intercept.Context, txlist Transa
 func (bot *TipBot) transactionsHandler(ctx intercept.Context) (intercept.Context, error) {
 	m := ctx.Message()
 	user := LoadUser(ctx)
-	payments, err := bot.Client.Payments(*user.Wallet)
+	payments, err := bot.Client.Payments(user.Wallet)
 	if err != nil {
 		log.Errorf("[transactions] Error: %s", err.Error())
 		return ctx, err

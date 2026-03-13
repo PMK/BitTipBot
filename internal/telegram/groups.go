@@ -292,7 +292,7 @@ func (bot *TipBot) groupConfirmPayButtonHandler(ctx intercept.Context) (intercep
 	defer ticketEvent.Set(ticketEvent, bot.Bunt)
 
 	user := LoadUser(ctx)
-	if user.Wallet == nil {
+	if user.Wallet.ID == "" {
 		bot.tryDeleteMessage(c)
 		return ctx, errors.Create(errors.UserNoWalletError)
 	}

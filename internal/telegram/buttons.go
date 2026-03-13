@@ -96,7 +96,7 @@ func (bot *TipBot) mainMenuBalanceButtonUpdate(to int64) {
 		}
 		updateCachedUser(user, *bot)
 	}
-	if user.Wallet != nil {
+	if user.Wallet.ID != "" {
 		amount, err := bot.GetUserBalanceCached(user)
 		if err == nil {
 			log.Tracef("[appendMainMenu] user %s balance %d sat", GetUserStr(user.Telegram), amount)

@@ -279,7 +279,7 @@ func (w Lnurl) serveLNURLpSecond(username string, amount_msat int64, comment str
 				Reason: fmt.Sprintf("Invalid user.")},
 		}, fmt.Errorf("[GetUser] Couldn't fetch user info from database: %v", tx.Error)
 	}
-	if user.Wallet == nil {
+	if user.Wallet.ID == "" {
 		return &lnurl.LNURLPayValues{
 			LNURLResponse: lnurl.LNURLResponse{
 				Status: api.StatusError,

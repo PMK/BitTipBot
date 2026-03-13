@@ -154,9 +154,9 @@ func GetUserByTelegramUsername(toUserStrWithoutAt string, bot TipBot) (*lnbits.U
 		return nil, fmt.Errorf("[GetUserByTelegramUsername] Telegram username is too long: %s..", toUserStrWithoutAt[:100])
 	}
 	tx := bot.DB.Users.Where("telegram_username = ? COLLATE NOCASE", toUserStrWithoutAt).First(toUserDb)
-	if tx.Error != nil || toUserDb.Wallet == nil {
+	if tx.Error != nil || toUserDb.Wallet.ID == "" {
 		err := tx.Error
-		if toUserDb.Wallet == nil {
+		if toUserDb.Wallet.ID == "" {
 			err = fmt.Errorf("%s | user @%s has no wallet", tx.Error, toUserStrWithoutAt)
 		}
 		return nil, err
@@ -292,12 +292,12 @@ func UpdateUserRecord(user *lnbits.User, bot TipBot) error {
 	// Guard: never overwrite valid wallet keys with empty strings. This can
 	// happen when GetUserBalance calls UpdateUserRecord after receiving only a
 	// partial wallet response from /api/v1/wallet (which omits inkey/adminkey).
-	if user.Wallet != nil && user.Wallet.ID != "" {
+	if user.Wallet.ID != "" && user.Wallet.ID != "" {
 		if user.Wallet.Inkey == "" || user.Wallet.Adminkey == "" {
 			// Re-load the full wallet from the database before saving
 			freshUser := &lnbits.User{Name: user.Name}
 			tx := bot.DB.Users.First(freshUser)
-			if tx.Error == nil && freshUser.Wallet != nil {
+			if tx.Error == nil && freshUser.Wallet.ID != "" {
 				if user.Wallet.Inkey == "" {
 					user.Wallet.Inkey = freshUser.Wallet.Inkey
 				}

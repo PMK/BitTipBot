@@ -40,7 +40,7 @@ type LnurlPayState struct {
 func (bot *TipBot) lnurlPayHandler(ctx intercept.Context, payParams *LnurlPayState) (context.Context, error) {
 	m := ctx.Message()
 	user := LoadUser(ctx)
-	if user.Wallet == nil {
+	if user.Wallet.ID == "" {
 		return ctx, fmt.Errorf("user has no wallet")
 	}
 	// object that holds all information about the send payment
@@ -120,7 +120,7 @@ func (bot *TipBot) lnurlPayHandler(ctx intercept.Context, payParams *LnurlPaySta
 func (bot *TipBot) lnurlPayHandlerSend(ctx intercept.Context) (intercept.Context, error) {
 	m := ctx.Message()
 	user := LoadUser(ctx)
-	if user.Wallet == nil {
+	if user.Wallet.ID == "" {
 		return ctx, errors.Create(errors.UserNoWalletError)
 	}
 	statusMsg := bot.trySendMessage(m.Sender, Translate(ctx, "lnurlGettingUserMessage"))

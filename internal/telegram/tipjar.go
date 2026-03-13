@@ -238,7 +238,7 @@ func (bot TipBot) handleInlineTipjarQuery(ctx intercept.Context) (intercept.Cont
 func (bot *TipBot) acceptInlineTipjarHandler(ctx intercept.Context) (intercept.Context, error) {
 	c := ctx.Callback()
 	from := LoadUser(ctx)
-	if from.Wallet == nil {
+	if from.Wallet.ID == "" {
 		return ctx, errors.Create(errors.UserNoWalletError)
 	}
 	tx := &InlineTipjar{Base: storage.New(storage.ID(c.Data))}

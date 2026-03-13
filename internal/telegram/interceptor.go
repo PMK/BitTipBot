@@ -113,7 +113,7 @@ func (bot TipBot) startUserInterceptor(ctx intercept.Context) (intercept.Context
 	if u != nil {
 		user := u.(*lnbits.User)
 		// check wallet nil or !initialized
-		if user.Wallet == nil || !user.Initialized {
+		if user.Wallet.ID == "" || !user.Initialized {
 			handler, err = bot.startHandler(handler)
 			if err != nil {
 				return handler, err

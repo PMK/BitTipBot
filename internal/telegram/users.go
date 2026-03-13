@@ -71,7 +71,7 @@ func (bot *TipBot) GetUserBalanceCached(user *lnbits.User) (amount int64, err er
 }
 
 func (bot *TipBot) GetUserBalance(user *lnbits.User) (amount int64, err error) {
-	if user.Wallet == nil {
+	if user.Wallet.ID == "" {
 		return 0, errors.New("User has no wallet")
 	}
 
@@ -86,7 +86,7 @@ func (bot *TipBot) GetUserBalance(user *lnbits.User) (amount int64, err error) {
 		return 0, fmt.Errorf("wallet inkey is empty")
 	}
 
-	wallet, err := bot.Client.Info(*user.Wallet)
+	wallet, err := bot.Client.Info(user.Wallet)
 	if err != nil {
 		errmsg := fmt.Sprintf("[GetUserBalance] Error: Couldn't fetch user %s's info from LNbits: %s", GetUserStr(user.Telegram), err.Error())
 		log.Errorln(errmsg)
@@ -147,7 +147,7 @@ func (bot *TipBot) UserExists(user *tb.User) (*lnbits.User, bool) {
 
 func (bot *TipBot) UserIsBanned(user *lnbits.User) bool {
 	// do not respond to banned users
-	if user.Wallet == nil {
+	if user.Wallet.ID == "" {
 		log.Tracef("[UserIsBanned] User %s has no wallet.\n", GetUserStr(user.Telegram))
 		return false
 	}
