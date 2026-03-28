@@ -39,7 +39,7 @@ func (bot *TipBot) lnurlHandler(ctx intercept.Context) (intercept.Context, error
 	}
 	log.Infof("[lnurlHandler] %s", m.Text)
 	user := LoadUser(ctx)
-	if user.Wallet == nil {
+	if user.Wallet.ID == "" {
 		return ctx, errors.Create(errors.UserNoWalletError)
 	}
 

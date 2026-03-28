@@ -28,7 +28,7 @@ func (bot *TipBot) generateImages(ctx intercept.Context) (intercept.Context, err
 	}
 	bot.anyTextHandler(ctx)
 	user := LoadUser(ctx)
-	if user.Wallet == nil {
+	if user.Wallet.ID == "" {
 		return ctx, fmt.Errorf("user has no wallet")
 	}
 
@@ -58,7 +58,7 @@ func (bot *TipBot) confirmGenerateImages(ctx intercept.Context) (intercept.Conte
 		return ctx, fmt.Errorf("prompt not given")
 	}
 
-	if user.Wallet == nil {
+	if user.Wallet.ID == "" {
 		return ctx, fmt.Errorf("user has no wallet")
 	}
 	me, err := GetUser(bot.Telegram.Me, *bot)
@@ -125,7 +125,7 @@ func worker(linkChan chan func(workerId int), workerId int) {
 func (bot *TipBot) generateDalleImages(event Event) {
 	invoiceEvent := event.(*InvoiceEvent)
 	user := invoiceEvent.Payer
-	if user == nil || user.Wallet == nil {
+	if user == nil || user.Wallet.ID == "" {
 		log.Errorf("[generateDalleImages] invalid user")
 		return
 	}
@@ -224,7 +224,7 @@ func (bot *TipBot) downloadAndSendImages(ctx context.Context, dalleClient dalle.
 }
 
 func (bot *TipBot) dalleRefundUser(user *lnbits.User, message string) error {
-	if user.Wallet == nil {
+	if user.Wallet.ID == "" {
 		return fmt.Errorf("user has no wallet")
 	}
 	me, err := GetUser(bot.Telegram.Me, *bot)

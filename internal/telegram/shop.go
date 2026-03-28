@@ -604,7 +604,7 @@ func (bot *TipBot) addShopItemPhoto(ctx intercept.Context) (intercept.Context, e
 	m := ctx.Message()
 	log.Debugf("[addShopItemPhoto] <Photo>")
 	user := LoadUser(ctx)
-	if user.Wallet == nil {
+	if user.Wallet.ID == "" {
 		return ctx, errors.Create(errors.UserNoWalletError)
 	}
 
@@ -656,7 +656,7 @@ func (bot *TipBot) shopItemAddItemHandler(ctx intercept.Context) (intercept.Cont
 	c := ctx.Callback()
 	log.Debugf("[shopItemAddItemHandler] %s", c.Data)
 	user := LoadUser(ctx)
-	if user.Wallet == nil {
+	if user.Wallet.ID == "" {
 		return ctx, errors.Create(errors.UserNoWalletError)
 	}
 	shopView, err := bot.getUserShopview(ctx, user)
@@ -689,7 +689,7 @@ func (bot *TipBot) addItemFileHandler(ctx intercept.Context) (intercept.Context,
 	m := ctx.Message()
 	log.Debugf("[addItemFileHandler] <File>")
 	user := LoadUser(ctx)
-	if user.Wallet == nil {
+	if user.Wallet.ID == "" {
 		return ctx, errors.Create(errors.UserNoWalletError)
 	}
 	shopView, err := bot.getUserShopview(ctx, user)
@@ -783,7 +783,7 @@ func (bot *TipBot) shopGetItemFilesHandler(ctx intercept.Context) (intercept.Con
 	c := ctx.Callback()
 	log.Debugf("[shopGetItemFilesHandler] %s", c.Data)
 	user := LoadUser(ctx)
-	if user.Wallet == nil {
+	if user.Wallet.ID == "" {
 		return ctx, errors.Create(errors.UserNoWalletError)
 	}
 	shopView, err := bot.getUserShopview(ctx, user)
@@ -823,7 +823,7 @@ func (bot *TipBot) shopConfirmBuyHandler(ctx intercept.Context) (intercept.Conte
 	c := ctx.Callback()
 	log.Debugf("[shopConfirmBuyHandler] %s", c.Data)
 	user := LoadUser(ctx)
-	if user.Wallet == nil {
+	if user.Wallet.ID == "" {
 		return ctx, errors.Create(errors.UserNoWalletError)
 	}
 	shopView, err := bot.getUserShopview(ctx, user)
@@ -884,7 +884,7 @@ func (bot *TipBot) shopConfirmBuyHandler(ctx intercept.Context) (intercept.Conte
 func (bot *TipBot) shopSendItemFilesToUser(ctx intercept.Context, toUser *lnbits.User, itemID string) {
 	log.Debugf("[shopSendItemFilesToUser] %s -> %s", GetUserStr(toUser.Telegram), itemID)
 	user := LoadUser(ctx)
-	if user.Wallet == nil {
+	if user.Wallet.ID == "" {
 		return // errors.New("user has no wallet"), 0
 	}
 	shopView, err := bot.getUserShopview(ctx, user)

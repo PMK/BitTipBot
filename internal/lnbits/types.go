@@ -21,12 +21,17 @@ type Client struct {
 	InvoiceKey string
 }
 
+// User represents a LNbits user stored in the local database.
+// IMPORTANT: the json tag on Name must stay "name" because this struct is
+// serialized to/from buntdb (key-value store) throughout the codebase.
+// The LNbits v1 API returns "username" instead of "name"; that mismatch is
+// handled by the lnbitsUserResponse intermediate struct in lnbits.go.
 type User struct {
 	ID           string       `json:"id"`
 	Name         string       `json:"name" gorm:"primaryKey"`
 	Initialized  bool         `json:"initialized"`
 	Telegram     *tb.User     `gorm:"embedded;embeddedPrefix:telegram_"`
-	Wallet       *Wallet      `gorm:"embedded;embeddedPrefix:wallet_"`
+	Wallet       Wallet       `gorm:"embedded"`
 	StateKey     UserStateKey `json:"stateKey"`
 	StateData    string       `json:"stateData"`
 	CreatedAt    time.Time    `json:"created"`
@@ -52,7 +57,7 @@ type DisplaySettings struct {
 type ReactionSettings struct {
 	ThumbsUpAmount int64 `json:"thumbs_up_amount"`
 	HeartAmount    int64 `json:"heart_amount"`
-	ThunderAmount    int64 `json:"thunder_amount"`
+	ThunderAmount  int64 `json:"thunder_amount"`
 }
 type NostrSettings struct {
 	PubKey string `json:"pubkey"`
@@ -90,12 +95,12 @@ func (u *User) ResetState() {
 }
 
 type InvoiceParams struct {
-	Out                 bool   `json:"out"`                            // must be True if invoice is payed, False if invoice is received
+	Out                 bool   `json:"out"`                            // must be True if invoice is paid, False if invoice is received
 	Amount              int64  `json:"amount"`                         // amount in Satoshi
-	Memo                string `json:"memo,omitempty"`                 // the invoice memo.
-	Webhook             string `json:"webhook,omitempty"`              // the webhook to fire back to when payment is received.
-	DescriptionHash     string `json:"description_hash,omitempty"`     // the invoice description hash.
-	UnhashedDescription string `json:"unhashed_description,omitempty"` // the unhashed invoice description.
+	Memo                string `json:"memo,omitempty"`                 // the invoice memo
+	Webhook             string `json:"webhook,omitempty"`              // the webhook to fire back to when payment is received
+	DescriptionHash     string `json:"description_hash,omitempty"`     // the invoice description hash
+	UnhashedDescription string `json:"unhashed_description,omitempty"` // the unhashed invoice description
 }
 
 type PaymentParams struct {
@@ -125,12 +130,12 @@ func (err Error) Error() string {
 }
 
 type Wallet struct {
-	ID       string `json:"id" gorm:"id"`
-	Adminkey string `json:"adminkey"`
-	Inkey    string `json:"inkey"`
-	Balance  int64  `json:"balance"`
-	Name     string `json:"name"`
-	User     string `json:"user"`
+	ID       string `json:"id"       gorm:"column:wallet_id"`
+	Adminkey string `json:"adminkey" gorm:"column:wallet_adminkey"`
+	Inkey    string `json:"inkey"    gorm:"column:wallet_inkey"`
+	Balance  int64  `json:"balance"  gorm:"column:wallet_balance"`
+	Name     string `json:"name"     gorm:"column:wallet_name"`
+	User     string `json:"user"     gorm:"column:wallet_user"`
 }
 
 type Payment struct {
@@ -159,8 +164,7 @@ type Payments []Payment
 
 type Invoice struct {
 	PaymentHash    string `json:"payment_hash"`
-	// PaymentRequest string `json:"payment_request"`
-	PaymentRequest string `json:"bolt11"` // Update for LNBits v1.2.1
+	PaymentRequest string `json:"bolt11"` // LNbits v1 returns bolt11, not payment_request
 }
 
 // from fiatjaf/lnurl-go
@@ -190,3 +194,6 @@ func (u User) SignKeyAuth(domain string, k1hex string) (key string, sig string, 
 
 	return key, sig, nil
 }
+
+// dummy use of req to satisfy import if needed elsewhere
+var _ = req.Header{}

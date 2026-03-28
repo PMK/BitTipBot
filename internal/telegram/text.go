@@ -23,7 +23,7 @@ func (bot *TipBot) anyTextHandler(ctx intercept.Context) (intercept.Context, err
 
 	// check if user is in Database, if not, initialize wallet
 	user := LoadUser(ctx)
-	if user.Wallet == nil || !user.Initialized {
+	if user.Wallet.ID == "" || !user.Initialized {
 		return bot.startHandler(ctx)
 	}
 
@@ -64,7 +64,7 @@ type EnterUserStateData struct {
 
 func (bot *TipBot) askForUser(ctx context.Context, id string, eventType string, originalCommand string) (enterUserStateData *EnterUserStateData, err error) {
 	user := LoadUser(ctx)
-	if user.Wallet == nil {
+	if user.Wallet.ID == "" {
 		return // errors.New("user has no wallet"), 0
 	}
 	enterUserStateData = &EnterUserStateData{
@@ -90,7 +90,7 @@ func (bot *TipBot) askForUser(ctx context.Context, id string, eventType string, 
 func (bot *TipBot) enterUserHandler(ctx intercept.Context) (intercept.Context, error) {
 	m := ctx.Message()
 	user := LoadUser(ctx)
-	if user.Wallet == nil {
+	if user.Wallet.ID == "" {
 		return ctx, errors.Create(errors.UserNoWalletError)
 	}
 

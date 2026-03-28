@@ -38,7 +38,7 @@ func (bot *TipBot) tipHandler(ctx intercept.Context) (intercept.Context, error) 
 	// check and print all commands
 	bot.anyTextHandler(ctx)
 	user := LoadUser(ctx)
-	if user.Wallet == nil {
+	if user.Wallet.ID == "" {
 		return ctx, fmt.Errorf("user has no wallet")
 	}
 

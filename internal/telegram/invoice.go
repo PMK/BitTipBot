@@ -119,7 +119,7 @@ func (bot *TipBot) invoiceHandler(ctx intercept.Context) (intercept.Context, err
 	user := LoadUser(ctx)
 	// load user settings
 	user, err := GetLnbitsUserWithSettings(user.Telegram, *bot)
-	if user.Wallet == nil {
+	if user.Wallet.ID == "" {
 		return ctx, errors.Create(errors.UserNoWalletError)
 	}
 	userStr := GetUserStr(user.Telegram)

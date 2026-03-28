@@ -56,7 +56,7 @@ func (bot *TipBot) payHandler(ctx intercept.Context) (intercept.Context, error) 
 	// check and print all commands
 	bot.anyTextHandler(ctx)
 	user := LoadUser(ctx)
-	if user.Wallet == nil {
+	if user.Wallet.ID == "" {
 		return ctx, errors.Create(errors.UserNoWalletError)
 	}
 	if len(strings.Split(ctx.Message().Text, " ")) < 2 {
@@ -187,7 +187,7 @@ func (bot *TipBot) confirmPayHandler(ctx intercept.Context) (intercept.Context, 
 	// bot.tryEditMessage(handler.Message(), MarkdownEscape(payData.Message), &tb.ReplyMarkup{})
 
 	user := LoadUser(ctx)
-	if user.Wallet == nil {
+	if user.Wallet.ID == "" {
 		bot.tryDeleteMessage(ctx.Message())
 		return ctx, errors.Create(errors.UserNoWalletError)
 	}

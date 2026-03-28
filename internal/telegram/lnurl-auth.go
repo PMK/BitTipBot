@@ -42,7 +42,7 @@ type LnurlAuthState struct {
 // at this point, the user hans't necessarily entered an amount yet
 func (bot *TipBot) lnurlAuthHandler(ctx context.Context, m *tb.Message, authParams *LnurlAuthState) (context.Context, error) {
 	user := LoadUser(ctx)
-	if user.Wallet == nil {
+	if user.Wallet.ID == "" {
 		return ctx, errors.Create(errors.UserNoWalletError)
 	}
 	// object that holds all information about the send payment
@@ -90,7 +90,7 @@ func (bot *TipBot) confirmLnurlAuthHandler(ctx intercept.Context) (intercept.Con
 	}
 
 	user := LoadUser(ctx)
-	if user.Wallet == nil {
+	if user.Wallet.ID == "" {
 		return ctx, errors.Create(errors.UserNoWalletError)
 	}
 

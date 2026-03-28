@@ -154,9 +154,9 @@ func GetUserByTelegramUsername(toUserStrWithoutAt string, bot TipBot) (*lnbits.U
 		return nil, fmt.Errorf("[GetUserByTelegramUsername] Telegram username is too long: %s..", toUserStrWithoutAt[:100])
 	}
 	tx := bot.DB.Users.Where("telegram_username = ? COLLATE NOCASE", toUserStrWithoutAt).First(toUserDb)
-	if tx.Error != nil || toUserDb.Wallet == nil {
+	if tx.Error != nil || toUserDb.Wallet.ID == "" {
 		err := tx.Error
-		if toUserDb.Wallet == nil {
+		if toUserDb.Wallet.ID == "" {
 			err = fmt.Errorf("%s | user @%s has no wallet", tx.Error, toUserStrWithoutAt)
 		}
 		return nil, err
@@ -264,8 +264,49 @@ func debugStack() {
 		}
 	}()
 }
+
+// UpdateUserRecord saves the user to the database.
+// PATCH: Drop into this file and replace the existing UpdateUserRecord function with this one.
+// Key changes:
+//   1. Refuse to save if user.Name is empty — this prevents the UNIQUE constraint failure
+//      from a phantom INSERT with name="" that then blocks the real save.
+//   2. Refuse to save if wallet keys are empty but the user has a wallet ID — this prevents
+//      a partial user object (e.g. loaded from an incomplete cache hit) from overwriting
+//      good wallet keys already stored in the database.
+
 func UpdateUserRecord(user *lnbits.User, bot TipBot) error {
 	user.UpdatedAt = time.Now()
+
+	// Guard: never save a user without a primary key. An empty Name means the
+	// user object was created from a partial API response or cache miss and was
+	// never fully initialized. Saving it would INSERT a ghost row with name=""
+	// and cause a UNIQUE constraint violation on the next real save.
+	if user.Name == "" {
+		errmsg := fmt.Sprintf("[UpdateUserRecord] Refusing to save user %s with empty Name (primary key)",
+			GetUserStr(user.Telegram))
+		log.Errorln(errmsg)
+		debugStack()
+		return fmt.Errorf("user.Name is empty, refusing to save")
+	}
+
+	// Guard: never overwrite valid wallet keys with empty strings. This can
+	// happen when GetUserBalance calls UpdateUserRecord after receiving only a
+	// partial wallet response from /api/v1/wallet (which omits inkey/adminkey).
+	if user.Wallet.ID != "" && user.Wallet.ID != "" {
+		if user.Wallet.Inkey == "" || user.Wallet.Adminkey == "" {
+			// Re-load the full wallet from the database before saving
+			freshUser := &lnbits.User{Name: user.Name}
+			tx := bot.DB.Users.First(freshUser)
+			if tx.Error == nil && freshUser.Wallet.ID != "" {
+				if user.Wallet.Inkey == "" {
+					user.Wallet.Inkey = freshUser.Wallet.Inkey
+				}
+				if user.Wallet.Adminkey == "" {
+					user.Wallet.Adminkey = freshUser.Wallet.Adminkey
+				}
+			}
+		}
+	}
 
 	// There is a weird bug that makes the AnonID vanish. This is a workaround.
 	// TODO -- Remove this after empty anon id bug is identified

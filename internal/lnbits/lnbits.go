@@ -23,58 +23,17 @@ func NewClient(key, url string) *Client {
 	}
 }
 
-// GetUser returns user information
-// Updated to use the new LNBits Users API (no UserManager plugin).
-func (c *Client) GetUser(userId string) (user User, err error) {
-	// new Users API exposes users at GET /api/v1/users/{user_id}
-	resp, err := req.Get(c.url+"/users/api/v1/user/"+userId, c.header, nil)
-	if err != nil {
-		return
-	}
-
-	if resp.Response().StatusCode >= 300 {
-		var reqErr Error
-		resp.ToJSON(&reqErr)
-		err = reqErr
-		return
-	}
-
-	err = resp.ToJSON(&user)
-	return
-}
-
-// CreateUserWithInitialWallet creates new user with initial wallet
-// Updated to use the new LNBits Users API (no UserManager plugin).
-func (c *Client) CreateUserWithInitialWallet(userName, walletName, adminId string, email string) (wal User, err error) {
-	// POST to /api/v1/users with the user data. The new LNBits Users API accepts similar fields.
-	resp, err := req.Post(c.url+"/users/api/v1/user", c.header, req.BodyJSON(struct {
-		WalletName string `json:"wallet_name"`
-		AdminId    string `json:"admin_id"`
-		UserName   string `json:"user_name"`
-		Email      string `json:"email"`
-	}{walletName, adminId, userName, email}))
-	if err != nil {
-		return
-	}
-
-	if resp.Response().StatusCode >= 300 {
-		var reqErr Error
-		resp.ToJSON(&reqErr)
-		err = reqErr
-		return
-	}
-	err = resp.ToJSON(&wal)
-	return
-}
-
-// CreateWallet creates a new wallet.
-func (c *Client) CreateWallet(userId, walletName, adminId string) (wal Wallet, err error) {
-	// New wallets endpoint in LNBits core is POST /api/v1/wallets
-	resp, err := req.Post(c.url+"/api/v1/wallets", c.header, req.BodyJSON(struct {
-		UserId     string `json:"user_id"`
-		WalletName string `json:"wallet_name"`
-		AdminId    string `json:"admin_id"`
-	}{userId, walletName, adminId}))
+// CreateAccount creates a new LNbits account with a wallet using the native
+// v1 API endpoint POST /api/v1/account. This replaces the deprecated User
+// Manager extension. The response includes wallet keys directly.
+func (c *Client) CreateAccount(walletName string) (wal Wallet, err error) {
+	resp, err := req.Post(
+		c.url+"/api/v1/account",
+		c.header,
+		req.BodyJSON(struct {
+			Name string `json:"name"`
+		}{Name: walletName}),
+	)
 	if err != nil {
 		return
 	}
@@ -111,6 +70,30 @@ func (w Wallet) Invoice(params InvoiceParams, c *Client) (lntx Invoice, err erro
 
 	err = resp.ToJSON(&lntx)
 	return
+}
+
+// InvoiceForWallet creates an invoice for a specific wallet using that
+// wallet's inkey. The walletInkey authenticates the request so the invoice
+// is created for (and credited to) the correct wallet.
+func (c *Client) InvoiceForWallet(walletInkey string, params InvoiceParams) (Invoice, error) {
+	params.Out = false
+	var result Invoice
+	walletHeader := req.Header{
+		"Content-Type": "application/json",
+		"Accept":       "application/json",
+		"X-Api-Key":    walletInkey,
+	}
+	resp, err := req.Post(c.url+"/api/v1/payments", walletHeader, req.BodyJSON(&params))
+	if err != nil {
+		return result, err
+	}
+	if resp.Response().StatusCode >= 300 {
+		var reqErr Error
+		resp.ToJSON(&reqErr)
+		return result, reqErr
+	}
+	err = resp.ToJSON(&result)
+	return result, err
 }
 
 // Info returns wallet information
@@ -182,26 +165,6 @@ func (c Client) Payment(w Wallet, payment_hash string) (payment LNbitsPayment, e
 	}
 
 	err = resp.ToJSON(&payment)
-	return
-}
-
-// Wallets returns all wallets belonging to a user
-// Updated to use the new LNBits Users API route for listing a user's wallets.
-func (c Client) Wallets(u User) (wtx []Wallet, err error) {
-	// new route: GET /api/v1/users/{user_id}/wallets
-	resp, err := req.Get(c.url+"/api/v1/users/"+u.ID+"/wallets", c.header, nil)
-	if err != nil {
-		return
-	}
-
-	if resp.Response().StatusCode >= 300 {
-		var reqErr Error
-		resp.ToJSON(&reqErr)
-		err = reqErr
-		return
-	}
-
-	err = resp.ToJSON(&wtx)
 	return
 }
 

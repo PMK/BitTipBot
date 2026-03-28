@@ -78,7 +78,7 @@ func (bot *TipBot) editSingleButton(ctx context.Context, m *tb.Message, params E
 func (bot *TipBot) lnurlWithdrawHandler(ctx intercept.Context, withdrawParams *LnurlWithdrawState) {
 	m := ctx.Message()
 	user := LoadUser(ctx)
-	if user.Wallet == nil {
+	if user.Wallet.ID == "" {
 		return
 	}
 	// object that holds all information about the send payment
@@ -139,7 +139,7 @@ func (bot *TipBot) lnurlWithdrawHandler(ctx intercept.Context, withdrawParams *L
 func (bot *TipBot) lnurlWithdrawHandlerWithdraw(ctx intercept.Context) (intercept.Context, error) {
 	m := ctx.Message()
 	user := LoadUser(ctx)
-	if user.Wallet == nil {
+	if user.Wallet.ID == "" {
 		return ctx, errors.Create(errors.UserNoWalletError)
 	}
 	statusMsg := bot.trySendMessageEditable(m.Sender, Translate(ctx, "lnurlPreparingWithdraw"))
@@ -237,7 +237,7 @@ func (bot *TipBot) confirmWithdrawHandler(ctx intercept.Context) (intercept.Cont
 	defer lnurlWithdrawState.Set(lnurlWithdrawState, bot.Bunt)
 
 	user := LoadUser(ctx)
-	if user.Wallet == nil {
+	if user.Wallet.ID == "" {
 		bot.tryDeleteMessage(c)
 		return ctx, errors.Create(errors.UserNoWalletError)
 	}

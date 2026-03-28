@@ -85,7 +85,7 @@ func (s Service) PayInvoice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	payment, _ := s.Bot.Client.Payment(*user.Wallet, invoice.PaymentHash)
+	payment, _ := s.Bot.Client.Payment(user.Wallet, invoice.PaymentHash)
 	if err != nil {
 		// we assume that it's paid since thre was no error earlier
 		payment.Paid = true
@@ -99,7 +99,7 @@ func (s Service) PayInvoice(w http.ResponseWriter, r *http.Request) {
 func (s Service) PaymentStatus(w http.ResponseWriter, r *http.Request) {
 	user := telegram.LoadUser(r.Context())
 	payment_hash := mux.Vars(r)["payment_hash"]
-	payment, err := s.Bot.Client.Payment(*user.Wallet, payment_hash)
+	payment, err := s.Bot.Client.Payment(user.Wallet, payment_hash)
 	if err != nil {
 		RespondError(w, "could not get payment")
 		return
@@ -113,8 +113,8 @@ func (s Service) PaymentStatus(w http.ResponseWriter, r *http.Request) {
 func (s Service) InvoiceStatus(w http.ResponseWriter, r *http.Request) {
 	user := telegram.LoadUser(r.Context())
 	payment_hash := mux.Vars(r)["payment_hash"]
-	user.Wallet = &lnbits.Wallet{}
-	payment, err := s.Bot.Client.Payment(*user.Wallet, payment_hash)
+	user.Wallet = lnbits.Wallet{}
+	payment, err := s.Bot.Client.Payment(user.Wallet, payment_hash)
 	if err != nil {
 		RespondError(w, "could not get invoice")
 		return

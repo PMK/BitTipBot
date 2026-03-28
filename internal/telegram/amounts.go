@@ -117,7 +117,7 @@ type EnterAmountStateData struct {
 
 func (bot *TipBot) askForAmount(ctx context.Context, id string, eventType string, amountMin int64, amountMax int64, originalCommand string) (enterAmountStateData *EnterAmountStateData, err error) {
 	user := LoadUser(ctx)
-	if user.Wallet == nil {
+	if user.Wallet.ID == "" {
 		return // errors.New("user has no wallet"), 0
 	}
 	enterAmountStateData = &EnterAmountStateData{
@@ -148,7 +148,7 @@ func (bot *TipBot) askForAmount(ctx context.Context, id string, eventType string
 // any other handler that relies on this, needs to load the resulting amount from the database
 func (bot *TipBot) enterAmountHandler(ctx intercept.Context) (intercept.Context, error) {
 	user := LoadUser(ctx)
-	if user.Wallet == nil {
+	if user.Wallet.ID == "" {
 		return ctx, errors.Create(errors.UserNoWalletError)
 	}
 

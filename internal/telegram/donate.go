@@ -45,7 +45,7 @@ func (bot TipBot) donationHandler(ctx intercept.Context) (intercept.Context, err
 	m := ctx.Message()
 	bot.anyTextHandler(ctx)
 	user := LoadUser(ctx)
-	if user.Wallet == nil {
+	if user.Wallet.ID == "" {
 		return ctx, errors.Create(errors.UserNoWalletError)
 	}
 

@@ -71,17 +71,32 @@ func (bot *TipBot) GetUserBalanceCached(user *lnbits.User) (amount int64, err er
 }
 
 func (bot *TipBot) GetUserBalance(user *lnbits.User) (amount int64, err error) {
-	if user.Wallet == nil {
+	if user.Wallet.ID == "" {
 		return 0, errors.New("User has no wallet")
 	}
 
-	wallet, err := bot.Client.Info(*user.Wallet)
+	// Guard: never attempt to fetch balance with an empty invoice key.
+	// An empty Inkey means the user object is incomplete (e.g. loaded from a
+	// partial cache entry). Proceeding would cause LNbits to return "No Api Key
+	// provided" and the subsequent UpdateUserRecord call would overwrite the
+	// wallet keys stored in the DB with empty strings, breaking the account.
+	if user.Wallet.Inkey == "" {
+		log.Warnf("[GetUserBalance] Skipping balance fetch for %s: wallet Inkey is empty (incomplete user object)",
+			GetUserStr(user.Telegram))
+		return 0, fmt.Errorf("wallet inkey is empty")
+	}
+
+	wallet, err := bot.Client.Info(user.Wallet)
 	if err != nil {
 		errmsg := fmt.Sprintf("[GetUserBalance] Error: Couldn't fetch user %s's info from LNbits: %s", GetUserStr(user.Telegram), err.Error())
 		log.Errorln(errmsg)
 		return
 	}
+
+	// Only update the balance field — never overwrite the wallet keys with the
+	// partial response from /api/v1/wallet (which does not return inkey/adminkey).
 	user.Wallet.Balance = wallet.Balance
+
 	err = UpdateUserRecord(user, *bot)
 	if err != nil {
 		return
@@ -132,7 +147,7 @@ func (bot *TipBot) UserExists(user *tb.User) (*lnbits.User, bool) {
 
 func (bot *TipBot) UserIsBanned(user *lnbits.User) bool {
 	// do not respond to banned users
-	if user.Wallet == nil {
+	if user.Wallet.ID == "" {
 		log.Tracef("[UserIsBanned] User %s has no wallet.\n", GetUserStr(user.Telegram))
 		return false
 	}
