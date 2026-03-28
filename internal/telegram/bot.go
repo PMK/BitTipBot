@@ -57,6 +57,9 @@ func NewBot() TipBot {
 		Cache:    Cache{GoCacheStore: gocacheStore},
 	}
 	poller.bot = &bot
+	// register invoice callbacks early so the webhook server can dispatch
+	// events immediately after it starts (before bot.Start is called)
+	initInvoiceEventCallbacks(&bot)
 	return bot
 }
 
@@ -127,9 +130,6 @@ func (bot *TipBot) Start() {
 	// edit worker collects messages to edit and
 	// periodically edits them
 	bot.startEditWorker()
-
-	// register callbacks for invoices
-	initInvoiceEventCallbacks(bot)
 
 	// register callbacks for user state changes
 	initializeStateCallbackMessage(bot)

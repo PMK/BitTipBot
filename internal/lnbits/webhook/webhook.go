@@ -1,8 +1,10 @@
 package webhook
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"time"
 
 	"github.com/LightningTipBot/LightningTipBot/internal"
@@ -32,7 +34,7 @@ type Server struct {
 
 type Webhook struct {
 	CheckingID    string      `json:"checking_id"`
-	Pending       bool        `json:"pending"`
+	Status        string      `json:"status"`  // LNbits v1: "success" or "pending"
 	Amount        int64       `json:"amount"`
 	Fee           int64       `json:"fee"`
 	Memo          string      `json:"memo"`
@@ -40,7 +42,7 @@ type Webhook struct {
 	Bolt11        string      `json:"bolt11"`
 	Preimage      string      `json:"preimage"`
 	PaymentHash   string      `json:"payment_hash"`
-	Extra         struct{}    `json:"extra"`
+	Extra         interface{} `json:"extra"`
 	WalletID      string      `json:"wallet_id"`
 	Webhook       string      `json:"webhook"`
 	WebhookStatus interface{} `json:"webhook_status"`
@@ -84,19 +86,45 @@ func (w *Server) newRouter() *mux.Router {
 }
 
 func (w *Server) receive(writer http.ResponseWriter, request *http.Request) {
-	log.Debugln("[Webhook] Received request")
-	webhookEvent := Webhook{}
-	// Strip content-length header to prevent Decode failures on some clients
-	request.Header.Del("content-length")
-	err := json.NewDecoder(request.Body).Decode(&webhookEvent)
+	log.Infoln("[Webhook] Received request")
+
+	// Read the raw body so we can log it for debugging and still decode it
+	rawBody, err := io.ReadAll(request.Body)
 	if err != nil {
-		log.Errorf("[Webhook] Error decoding request: %s", err.Error())
+		log.Errorf("[Webhook] Error reading request body: %s", err.Error())
 		writer.WriteHeader(400)
 		return
 	}
+	log.Debugf("[Webhook] Raw payload: %s", string(rawBody))
 
-	// Ignore pending (unpaid) payments — only process settled payments
-	if webhookEvent.Pending {
+	// LNbits v1 sends the payload as a double-encoded JSON string (the body
+	// is a JSON string containing escaped JSON). Try normal decode first;
+	// if that fails, unquote the string and decode the inner JSON.
+	payload := rawBody
+	webhookEvent := Webhook{}
+	err = json.NewDecoder(bytes.NewReader(payload)).Decode(&webhookEvent)
+	if err != nil {
+		// Try unquoting: the body might be a JSON string wrapping the real object
+		var inner string
+		if unquoteErr := json.Unmarshal(rawBody, &inner); unquoteErr == nil {
+			payload = []byte(inner)
+			err = json.Unmarshal(payload, &webhookEvent)
+		}
+		if err != nil {
+			log.Errorf("[Webhook] Error decoding request: %s", err.Error())
+			log.Errorf("[Webhook] Body was: %s", string(rawBody))
+			writer.WriteHeader(400)
+			return
+		}
+	}
+
+	log.Infof("[Webhook] Decoded: payment_hash=%s wallet_id=%s status=%s amount=%d",
+		webhookEvent.PaymentHash, webhookEvent.WalletID, webhookEvent.Status, webhookEvent.Amount)
+
+	// Ignore non-settled payments — LNbits v1 uses "status" field ("success" = settled)
+	if webhookEvent.Status != "success" {
+		log.Infof("[Webhook] Ignoring non-success payment (status=%s, payment_hash=%s)",
+			webhookEvent.Status, webhookEvent.PaymentHash)
 		writer.WriteHeader(200)
 		return
 	}
