@@ -23,66 +23,17 @@ func NewClient(key, url string) *Client {
 	}
 }
 
-// GetUser returns user information
-// Updated to use the new LNBits Users API (no UserManager plugin).
-func (c *Client) GetUser(userId string) (user User, err error) {
-	// new Users API exposes users at GET /api/v1/users/{user_id}
-	resp, err := req.Get(c.url+"/users/api/v1/user/"+userId, c.header, nil)
-	if err != nil {
-		return
-	}
-
-	if resp.Response().StatusCode >= 300 {
-		var reqErr Error
-		resp.ToJSON(&reqErr)
-		err = reqErr
-		return
-	}
-
-	err = resp.ToJSON(&user)
-	return
-}
-
-// CreateUserWithInitialWallet creates a new LNBits user and an initial wallet.
-// LNBits v1 requires two separate API calls: one to create the user and one to
-// create the wallet. The admin key is passed via the X-Api-Key header.
-func (c *Client) CreateUserWithInitialWallet(userName, walletName, adminId string, email string) (user User, err error) {
-	// Step 1: Create the user account.
-	resp, err := req.Post(c.url+"/users/api/v1/user", c.header, req.BodyJSON(struct {
-		UserName string `json:"username"`
-	}{userName}))
-	if err != nil {
-		return
-	}
-	if resp.Response().StatusCode >= 300 {
-		var reqErr Error
-		resp.ToJSON(&reqErr)
-		err = reqErr
-		return
-	}
-	// LNBits v1 returns "username", but our internal User struct uses json:"name".
-	// Use an intermediate struct to bridge the mismatch.
-	var apiResp struct {
-		ID       string `json:"id"`
-		UserName string `json:"username"`
-	}
-	if err = resp.ToJSON(&apiResp); err != nil {
-		return
-	}
-	user.ID = apiResp.ID
-	user.Name = apiResp.UserName
-
-	// Step 2: Create the initial wallet for the new user.
-	_, err = c.CreateWallet(user.ID, walletName, adminId)
-	return
-}
-
-// CreateWallet creates a new wallet for an existing LNBits user.
-// LNBits v1 endpoint: POST /users/api/v1/user/{user_id}/wallet
-func (c *Client) CreateWallet(userId, walletName, adminId string) (wal Wallet, err error) {
-	resp, err := req.Post(c.url+"/users/api/v1/user/"+userId+"/wallet", c.header, req.BodyJSON(struct {
-		Name string `json:"name"`
-	}{walletName}))
+// CreateAccount creates a new LNbits account with a wallet using the native
+// v1 API endpoint POST /api/v1/account. This replaces the deprecated User
+// Manager extension. The response includes wallet keys directly.
+func (c *Client) CreateAccount(walletName string) (wal Wallet, err error) {
+	resp, err := req.Post(
+		c.url+"/api/v1/account",
+		c.header,
+		req.BodyJSON(struct {
+			Name string `json:"name"`
+		}{Name: walletName}),
+	)
 	if err != nil {
 		return
 	}
@@ -119,6 +70,30 @@ func (w Wallet) Invoice(params InvoiceParams, c *Client) (lntx Invoice, err erro
 
 	err = resp.ToJSON(&lntx)
 	return
+}
+
+// InvoiceForWallet creates an invoice for a specific wallet using that
+// wallet's inkey. The walletInkey authenticates the request so the invoice
+// is created for (and credited to) the correct wallet.
+func (c *Client) InvoiceForWallet(walletInkey string, params InvoiceParams) (Invoice, error) {
+	params.Out = false
+	var result Invoice
+	walletHeader := req.Header{
+		"Content-Type": "application/json",
+		"Accept":       "application/json",
+		"X-Api-Key":    walletInkey,
+	}
+	resp, err := req.Post(c.url+"/api/v1/payments", walletHeader, req.BodyJSON(&params))
+	if err != nil {
+		return result, err
+	}
+	if resp.Response().StatusCode >= 300 {
+		var reqErr Error
+		resp.ToJSON(&reqErr)
+		return result, reqErr
+	}
+	err = resp.ToJSON(&result)
+	return result, err
 }
 
 // Info returns wallet information
@@ -190,25 +165,6 @@ func (c Client) Payment(w Wallet, payment_hash string) (payment LNbitsPayment, e
 	}
 
 	err = resp.ToJSON(&payment)
-	return
-}
-
-// Wallets returns all wallets belonging to a user.
-// LNBits v1 endpoint: GET /users/api/v1/user/{user_id}/wallet
-func (c Client) Wallets(u User) (wtx []Wallet, err error) {
-	resp, err := req.Get(c.url+"/users/api/v1/user/"+u.ID+"/wallet", c.header, nil)
-	if err != nil {
-		return
-	}
-
-	if resp.Response().StatusCode >= 300 {
-		var reqErr Error
-		resp.ToJSON(&reqErr)
-		err = reqErr
-		return
-	}
-
-	err = resp.ToJSON(&wtx)
 	return
 }
 

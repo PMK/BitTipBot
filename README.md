@@ -41,8 +41,6 @@ You can either use your own LNbits instance (recommended) or create an account a
 
 1. Create a wallet in LNbits (reachable by the bot via `lnbits_url`).
 2. Get the **Admin key** in the API Info tab of your user (`lnbits_admin_key`).
-3. Enable the User Manager extension.
-4. Get the **Admin ID** of the User Manager (`lnbits_admin_id`).
 
 #### Getting LNbits keys
 

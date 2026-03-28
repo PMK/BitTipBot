@@ -11,8 +11,6 @@ import (
 
 	"github.com/LightningTipBot/LightningTipBot/internal/errors"
 
-	"github.com/LightningTipBot/LightningTipBot/internal"
-
 	log "github.com/sirupsen/logrus"
 
 	"github.com/LightningTipBot/LightningTipBot/internal/lnbits"
@@ -86,25 +84,16 @@ func (bot TipBot) initWallet(tguser *tb.User) (*lnbits.User, error) {
 
 func (bot TipBot) createWallet(user *lnbits.User) error {
 	UserStr := GetUserStr(user.Telegram)
-	u, err := bot.Client.CreateUserWithInitialWallet(strconv.FormatInt(user.Telegram.ID, 10),
-		fmt.Sprintf("%d (%s)", user.Telegram.ID, UserStr),
-		internal.Configuration.Lnbits.AdminId,
-		UserStr)
+	walletName := fmt.Sprintf("%d (%s)", user.Telegram.ID, UserStr)
+	wallet, err := bot.Client.CreateAccount(walletName)
 	if err != nil {
 		errormsg := fmt.Sprintf("[createWallet] Create wallet error: %s", err.Error())
 		log.Errorln(errormsg)
 		return err
 	}
-	user.Wallet = lnbits.Wallet{}
-	user.ID = u.ID
-	user.Name = u.Name
-	wallet, err := bot.Client.Wallets(*user)
-	if err != nil {
-		errormsg := fmt.Sprintf("[createWallet] Get wallet error: %s", err.Error())
-		log.Errorln(errormsg)
-		return err
-	}
-	user.Wallet = wallet[0]
+	user.Wallet = wallet
+	user.ID = wallet.User
+	user.Name = strconv.FormatInt(user.Telegram.ID, 10)
 
 	user.AnonID = fmt.Sprint(str.Int32Hash(user.ID))
 	user.AnonIDSha256 = str.AnonIdSha256(user)

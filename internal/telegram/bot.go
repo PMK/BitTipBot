@@ -75,7 +75,6 @@ func newTelegramBot(poller tb.Poller) *tb.Bot {
 }
 
 // initBotWallet will create / initialize the bot wallet
-// todo -- may want to derive user wallets from this specific bot wallet (master wallet), since lnbits usermanager extension is able to do that.
 func (bot TipBot) initBotWallet() error {
 	botWalletInitialisation.Do(func() {
 		_, err := bot.initWallet(bot.Telegram.Me)
