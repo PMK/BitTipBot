@@ -358,7 +358,7 @@ func (w Lnurl) serveLNURLpSecond(username string, amount_msat int64, comment str
 	}
 
 	invoice, err := w.c.InvoiceForWallet(
-		user.Wallet.ID,
+		user.Wallet.Inkey,
 		lnbits.InvoiceParams{
 			Amount:          amount_msat / 1000,
 			Out:             false,
