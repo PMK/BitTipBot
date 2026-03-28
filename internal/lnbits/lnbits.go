@@ -23,51 +23,34 @@ func NewClient(key, url string) *Client {
 	}
 }
 
-// GetUser returns user information from the LNbits Users extension API.
-// Endpoint: GET /users/api/v1/user/{user_id}
+// GetUser returns user information
+// Updated to use the new LNBits Users API (no UserManager plugin).
 func (c *Client) GetUser(userId string) (user User, err error) {
+	// new Users API exposes users at GET /api/v1/users/{user_id}
 	resp, err := req.Get(c.url+"/users/api/v1/user/"+userId, c.header, nil)
 	if err != nil {
 		return
 	}
+
 	if resp.Response().StatusCode >= 300 {
 		var reqErr Error
 		resp.ToJSON(&reqErr)
 		err = reqErr
 		return
 	}
+
 	err = resp.ToJSON(&user)
 	return
 }
 
-// lnbitsCreateUserRequest is the request body accepted by the LNbits v1 Users extension.
-// The API key (admin key) goes in the X-Api-Key header, NOT in the body.
-type lnbitsCreateUserRequest struct {
-	UserName   string `json:"username"`    // LNbits v1 field name
-	WalletName string `json:"wallet_name"` // name for the initial wallet
-}
-
-// lnbitsUserResponse is an intermediate struct that matches the LNbits v1 API
-// response JSON exactly. The API returns "username" but our internal User struct
-// uses json:"name" (to stay compatible with buntdb serialization throughout the
-// codebase). We decode into this first, then map the fields to User.
-type lnbitsUserResponse struct {
-	ID       string `json:"id"`
-	UserName string `json:"username"`
-}
-
-// CreateUserWithInitialWallet creates a new LNbits user with an initial wallet.
-// It uses the Users extension endpoint POST /users/api/v1/user.
-// The admin credentials are passed via the X-Api-Key header (already set on c.header).
+// CreateUserWithInitialWallet creates a new LNBits user and an initial wallet.
+// LNBits v1 requires two separate API calls: one to create the user and one to
+// create the wallet. The admin key is passed via the X-Api-Key header.
 func (c *Client) CreateUserWithInitialWallet(userName, walletName, adminId string, email string) (user User, err error) {
-	resp, err := req.Post(
-		c.url+"/users/api/v1/user",
-		c.header,
-		req.BodyJSON(lnbitsCreateUserRequest{
-			UserName:   userName,
-			WalletName: walletName,
-		}),
-	)
+	// Step 1: Create the user account.
+	resp, err := req.Post(c.url+"/users/api/v1/user", c.header, req.BodyJSON(struct {
+		UserName string `json:"username"`
+	}{userName}))
 	if err != nil {
 		return
 	}
@@ -77,29 +60,33 @@ func (c *Client) CreateUserWithInitialWallet(userName, walletName, adminId strin
 		err = reqErr
 		return
 	}
-	// Decode via the intermediate struct to handle the "username" vs "name" mismatch
-	var apiResp lnbitsUserResponse
+	// LNBits v1 returns "username", but our internal User struct uses json:"name".
+	// Use an intermediate struct to bridge the mismatch.
+	var apiResp struct {
+		ID       string `json:"id"`
+		UserName string `json:"username"`
+	}
 	if err = resp.ToJSON(&apiResp); err != nil {
 		return
 	}
 	user.ID = apiResp.ID
 	user.Name = apiResp.UserName
+
+	// Step 2: Create the initial wallet for the new user.
+	_, err = c.CreateWallet(user.ID, walletName, adminId)
 	return
 }
 
-// CreateWallet creates an additional wallet for an existing LNbits user.
-// Endpoint: POST /users/api/v1/user/{user_id}/wallet
+// CreateWallet creates a new wallet for an existing LNBits user.
+// LNBits v1 endpoint: POST /users/api/v1/user/{user_id}/wallet
 func (c *Client) CreateWallet(userId, walletName, adminId string) (wal Wallet, err error) {
-	resp, err := req.Post(
-		c.url+"/users/api/v1/user/"+userId+"/wallet",
-		c.header,
-		req.BodyJSON(struct {
-			WalletName string `json:"wallet_name"`
-		}{WalletName: walletName}),
-	)
+	resp, err := req.Post(c.url+"/users/api/v1/user/"+userId+"/wallet", c.header, req.BodyJSON(struct {
+		Name string `json:"name"`
+	}{walletName}))
 	if err != nil {
 		return
 	}
+
 	if resp.Response().StatusCode >= 300 {
 		var reqErr Error
 		resp.ToJSON(&reqErr)
@@ -110,8 +97,9 @@ func (c *Client) CreateWallet(userId, walletName, adminId string) (wal Wallet, e
 	return
 }
 
-// Invoice creates a BOLT11 invoice associated with this wallet.
+// Invoice creates an invoice associated with this wallet.
 func (w Wallet) Invoice(params InvoiceParams, c *Client) (lntx Invoice, err error) {
+	// custom header with invoice key
 	invoiceHeader := req.Header{
 		"Content-Type": "application/json",
 		"Accept":       "application/json",
@@ -121,35 +109,21 @@ func (w Wallet) Invoice(params InvoiceParams, c *Client) (lntx Invoice, err erro
 	if err != nil {
 		return
 	}
+
 	if resp.Response().StatusCode >= 300 {
 		var reqErr Error
 		resp.ToJSON(&reqErr)
 		err = reqErr
 		return
 	}
+
 	err = resp.ToJSON(&lntx)
 	return
 }
 
-// InvoiceForWallet creates an invoice for any wallet using the admin key.
-func (c *Client) InvoiceForWallet(walletID string, params InvoiceParams) (Invoice, error) {
-	params.Out = false
-	var result Invoice
-	resp, err := req.Post(c.url+"/api/v1/payments", c.header, req.BodyJSON(&params))
-	if err != nil {
-		return result, err
-	}
-	if resp.Response().StatusCode >= 300 {
-		var reqErr Error
-		resp.ToJSON(&reqErr)
-		return result, reqErr
-	}
-	err = resp.ToJSON(&result)
-	return result, err
-}
-
-// Info returns wallet information (balance, keys, etc.).
+// Info returns wallet information
 func (c Client) Info(w Wallet) (wtx Wallet, err error) {
+	// custom header with invoice key
 	invoiceHeader := req.Header{
 		"Content-Type": "application/json",
 		"Accept":       "application/json",
@@ -159,18 +133,21 @@ func (c Client) Info(w Wallet) (wtx Wallet, err error) {
 	if err != nil {
 		return
 	}
+
 	if resp.Response().StatusCode >= 300 {
 		var reqErr Error
 		resp.ToJSON(&reqErr)
 		err = reqErr
 		return
 	}
+
 	err = resp.ToJSON(&wtx)
 	return
 }
 
-// Payments returns wallet payment history.
+// Payments returns wallet payments
 func (c Client) Payments(w Wallet) (wtx Payments, err error) {
+	// custom header with invoice key
 	invoiceHeader := req.Header{
 		"Content-Type": "application/json",
 		"Accept":       "application/json",
@@ -180,18 +157,21 @@ func (c Client) Payments(w Wallet) (wtx Payments, err error) {
 	if err != nil {
 		return
 	}
+
 	if resp.Response().StatusCode >= 300 {
 		var reqErr Error
 		resp.ToJSON(&reqErr)
 		err = reqErr
 		return
 	}
+
 	err = resp.ToJSON(&wtx)
 	return
 }
 
-// Payment returns the state of a single payment by hash.
+// Payment state of a payment
 func (c Client) Payment(w Wallet, payment_hash string) (payment LNbitsPayment, err error) {
+	// custom header with invoice key
 	invoiceHeader := req.Header{
 		"Content-Type": "application/json",
 		"Accept":       "application/json",
@@ -201,35 +181,40 @@ func (c Client) Payment(w Wallet, payment_hash string) (payment LNbitsPayment, e
 	if err != nil {
 		return
 	}
+
 	if resp.Response().StatusCode >= 300 {
 		var reqErr Error
 		resp.ToJSON(&reqErr)
 		err = reqErr
 		return
 	}
+
 	err = resp.ToJSON(&payment)
 	return
 }
 
 // Wallets returns all wallets belonging to a user.
-// Uses the Users extension endpoint: GET /users/api/v1/user/{user_id}/wallets
+// LNBits v1 endpoint: GET /users/api/v1/user/{user_id}/wallet
 func (c Client) Wallets(u User) (wtx []Wallet, err error) {
-	resp, err := req.Get(c.url+"/users/api/v1/user/"+u.ID+"/wallets", c.header, nil)
+	resp, err := req.Get(c.url+"/users/api/v1/user/"+u.ID+"/wallet", c.header, nil)
 	if err != nil {
 		return
 	}
+
 	if resp.Response().StatusCode >= 300 {
 		var reqErr Error
 		resp.ToJSON(&reqErr)
 		err = reqErr
 		return
 	}
+
 	err = resp.ToJSON(&wtx)
 	return
 }
 
 // Pay pays a given invoice with funds from the wallet.
 func (w Wallet) Pay(params PaymentParams, c *Client) (wtx Invoice, err error) {
+	// custom header with admin key
 	adminHeader := req.Header{
 		"Content-Type": "application/json",
 		"Accept":       "application/json",
@@ -241,12 +226,14 @@ func (w Wallet) Pay(params PaymentParams, c *Client) (wtx Invoice, err error) {
 	if err != nil {
 		return
 	}
+
 	if resp.Response().StatusCode >= 300 {
 		var reqErr Error
 		resp.ToJSON(&reqErr)
 		err = reqErr
 		return
 	}
+
 	err = resp.ToJSON(&wtx)
 	return
 }
