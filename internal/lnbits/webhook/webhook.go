@@ -1,8 +1,10 @@
 package webhook
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"time"
 
 	"github.com/LightningTipBot/LightningTipBot/internal"
@@ -84,19 +86,32 @@ func (w *Server) newRouter() *mux.Router {
 }
 
 func (w *Server) receive(writer http.ResponseWriter, request *http.Request) {
-	log.Debugln("[Webhook] Received request")
+	log.Infoln("[Webhook] Received request")
+
+	// Read the raw body so we can log it for debugging and still decode it
+	rawBody, err := io.ReadAll(request.Body)
+	if err != nil {
+		log.Errorf("[Webhook] Error reading request body: %s", err.Error())
+		writer.WriteHeader(400)
+		return
+	}
+	log.Debugf("[Webhook] Raw payload: %s", string(rawBody))
+
 	webhookEvent := Webhook{}
-	// Strip content-length header to prevent Decode failures on some clients
-	request.Header.Del("content-length")
-	err := json.NewDecoder(request.Body).Decode(&webhookEvent)
+	err = json.NewDecoder(bytes.NewReader(rawBody)).Decode(&webhookEvent)
 	if err != nil {
 		log.Errorf("[Webhook] Error decoding request: %s", err.Error())
+		log.Errorf("[Webhook] Body was: %s", string(rawBody))
 		writer.WriteHeader(400)
 		return
 	}
 
+	log.Infof("[Webhook] Decoded: payment_hash=%s wallet_id=%s pending=%v amount=%d",
+		webhookEvent.PaymentHash, webhookEvent.WalletID, webhookEvent.Pending, webhookEvent.Amount)
+
 	// Ignore pending (unpaid) payments — only process settled payments
 	if webhookEvent.Pending {
+		log.Infof("[Webhook] Ignoring pending payment (payment_hash=%s)", webhookEvent.PaymentHash)
 		writer.WriteHeader(200)
 		return
 	}
