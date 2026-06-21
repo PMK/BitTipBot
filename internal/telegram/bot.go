@@ -15,6 +15,7 @@ import (
 	"github.com/eko/gocache/store"
 
 	"github.com/LightningTipBot/LightningTipBot/internal"
+	"github.com/LightningTipBot/LightningTipBot/internal/cashu"
 	"github.com/LightningTipBot/LightningTipBot/internal/lnbits"
 	"github.com/LightningTipBot/LightningTipBot/internal/storage"
 	gocache "github.com/patrickmn/go-cache"
@@ -23,12 +24,13 @@ import (
 )
 
 type TipBot struct {
-	DB       *Databases
-	Bunt     *storage.DB
-	ShopBunt *storage.DB
-	Telegram *tb.Bot
-	Client   *lnbits.Client
-	limiter  map[string]limiter.Limiter
+	DB          *Databases
+	Bunt        *storage.DB
+	ShopBunt    *storage.DB
+	Telegram    *tb.Bot
+	Client      *lnbits.Client
+	CashuClient *cashu.Client
+	limiter     map[string]limiter.Limiter
 	Cache
 }
 type Cache struct {
@@ -48,13 +50,19 @@ func NewBot() TipBot {
 	dbs := AutoMigration()
 	limiter.Start()
 	poller := &ReactionPoller{Timeout: 60 * time.Second}
+	var cashuClient *cashu.Client
+	if internal.Configuration.Cashu.Enabled {
+		cashuClient = cashu.NewClient(internal.Configuration.Cashu.MintURL)
+		log.Infof("Cashu ecash support enabled, mint: %s", internal.Configuration.Cashu.MintURL)
+	}
 	bot := TipBot{
-		DB:       dbs,
-		Client:   lnbits.NewClient(internal.Configuration.Lnbits.AdminKey, internal.Configuration.Lnbits.Url),
-		Bunt:     createBunt(internal.Configuration.Database.BuntDbPath),
-		ShopBunt: createBunt(internal.Configuration.Database.ShopBuntDbPath),
-		Telegram: newTelegramBot(poller),
-		Cache:    Cache{GoCacheStore: gocacheStore},
+		DB:          dbs,
+		Client:      lnbits.NewClient(internal.Configuration.Lnbits.AdminKey, internal.Configuration.Lnbits.Url),
+		CashuClient: cashuClient,
+		Bunt:        createBunt(internal.Configuration.Database.BuntDbPath),
+		ShopBunt:    createBunt(internal.Configuration.Database.ShopBuntDbPath),
+		Telegram:    newTelegramBot(poller),
+		Cache:       Cache{GoCacheStore: gocacheStore},
 	}
 	poller.bot = &bot
 	// register invoice callbacks early so the webhook server can dispatch

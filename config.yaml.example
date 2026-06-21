@@ -31,3 +31,7 @@ generate:
   worker: 2
 nostr:
   private_key: "hex private key here"
+cashu:
+  enabled: false
+  mint_url: "https://mint.minibits.cash"
+  unit: "sat"

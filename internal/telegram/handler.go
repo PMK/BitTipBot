@@ -404,6 +404,23 @@ func (bot TipBot) getHandler() []InterceptionWrapper {
 				},
 			},
 		},
+		// cashu ecash
+		{
+			Endpoints: []interface{}{"/cashu"},
+			Handler:   bot.cashuHandler,
+			Interceptor: &Interceptor{
+				Before: []intercept.Func{
+					bot.requirePrivateChatInterceptor,
+					bot.localizerInterceptor,
+					bot.logMessageInterceptor,
+					bot.requireUserInterceptor,
+					bot.lockInterceptor,
+				},
+				OnDefer: []intercept.Func{
+					bot.unlockInterceptor,
+				},
+			},
+		},
 		{
 			Endpoints: []interface{}{"/faucet", "/crane", "/spigot", "/tap", "/hydrant", "/funding", "/zapfhahn", "/kraan", "/kran", "/grifo", "/fonds", "/hana", "/keran", "/distribuzione", "/torneira", "/fici", "/kohoutek"},
 			Handler:   bot.faucetHandler,
@@ -821,6 +838,42 @@ func (bot TipBot) getHandler() []InterceptionWrapper {
 		{
 			Endpoints: []interface{}{&btnCancelInlineFaucet},
 			Handler:   bot.cancelInlineFaucetHandler,
+			Interceptor: &Interceptor{
+
+				Before: []intercept.Func{
+					bot.localizerInterceptor,
+					bot.requireUserInterceptor,
+					bot.answerCallbackInterceptor,
+					bot.lockInterceptor,
+				},
+				OnDefer: []intercept.Func{
+					bot.unlockInterceptor,
+				},
+			},
+		},
+		// cashu inline claim
+		{
+			Endpoints: []interface{}{&btnClaimInlineCashu},
+			Handler:   bot.acceptInlineCashuHandler,
+			Interceptor: &Interceptor{
+
+				Before: []intercept.Func{
+					bot.singletonCallbackInterceptor,
+					bot.localizerInterceptor,
+					bot.loadUserInterceptor,
+					bot.answerCallbackInterceptor,
+					bot.lockInterceptor,
+				},
+				OnDefer: []intercept.Func{
+					bot.unlockInterceptor,
+					bot.answerCallbackInterceptor,
+				},
+			},
+		},
+		// cashu inline cancel
+		{
+			Endpoints: []interface{}{&btnCancelInlineCashu},
+			Handler:   bot.cancelInlineCashuHandler,
 			Interceptor: &Interceptor{
 
 				Before: []intercept.Func{

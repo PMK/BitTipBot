@@ -28,6 +28,14 @@ const (
 )
 
 const (
+	CashuTokenInvalidError TipBotErrorType = 4000 + iota
+	CashuTokenSpentError
+	CashuMintError
+	CashuMeltError
+	CashuDisabledError
+)
+
+const (
 	NoShopError TipBotErrorType = 3000 + iota
 	NotShopOwnerError
 	ShopNoOwnerError
