@@ -95,33 +95,9 @@ func (bot *TipBot) handleInlineCashuQuery(ctx intercept.Context) (intercept.Cont
 		return ctx, nil
 	}
 
-	// Mint the token
-	quote, err := bot.CashuClient.MintQuote(amount, "sat")
-	if err != nil {
-		log.Errorf("[cashu inline] MintQuote error: %s", err.Error())
-		bot.inlineQueryReplyWithError(ctx, "Mint error", "Could not communicate with the cashu mint.")
-		return ctx, err
-	}
-
-	// Pay the mint's invoice
-	_, err = fromUser.Wallet.Pay(lnbits.PaymentParams{
-		Out:    true,
-		Bolt11: quote.Request,
-	}, bot.Client)
-	if err != nil {
-		log.Errorf("[cashu inline] Payment to mint failed: %s", err.Error())
-		bot.inlineQueryReplyWithError(ctx, "Payment error", "Could not pay the mint's invoice.")
-		return ctx, err
-	}
-
-	time.Sleep(2 * time.Second)
-
-	tokenStr, err := bot.CashuClient.MintTokens(quote.Quote, amount, memo)
-	if err != nil {
-		log.Errorf("[cashu inline] MintTokens failed: %s", err.Error())
-		bot.inlineQueryReplyWithError(ctx, "Mint error", "Could not create ecash token.")
-		return ctx, err
-	}
+	// ponytail: do NOT mint here — inline queries fire on every keystroke, so
+	// minting here spends money per character typed. The token is minted from
+	// the sender's wallet on claim instead (acceptInlineCashuHandler).
 
 	// Create the inline cashu object
 	id := fmt.Sprintf("cashu:%s:%d", RandStringRunes(10), amount)
@@ -135,7 +111,7 @@ func (bot *TipBot) handleInlineCashuQuery(ctx intercept.Context) (intercept.Cont
 		Message:      inlineMessage,
 		Amount:       amount,
 		From:         fromUser,
-		Token:        tokenStr,
+		Token:        "", // minted on claim
 		Memo:         memo,
 		Claimed:      false,
 		LanguageCode: "en",
@@ -209,10 +185,33 @@ func (bot *TipBot) acceptInlineCashuHandler(ctx intercept.Context) (intercept.Co
 		to = LoadUser(ctx) // reload
 	}
 
-	// Redeem the token
-	token, err := cashu.Deserialize(inlineCashu.Token)
+	// Mint the token now, from the sender's wallet. Deferred to claim so inline
+	// query keystrokes never spend money — only an actual claim does.
+	amount := inlineCashu.Amount
+	quote, err := bot.CashuClient.MintQuote(amount, "sat")
 	if err != nil {
-		log.Errorf("[cashu claim] Invalid stored token: %s", err.Error())
+		log.Errorf("[cashu claim] MintQuote failed: %s", err.Error())
+		ctx.Context = context.WithValue(ctx, "callback_response", Translate(ctx, "cashuMintErrorMessage"))
+		return ctx, err
+	}
+	if _, err = from.Wallet.Pay(lnbits.PaymentParams{Out: true, Bolt11: quote.Request}, bot.Client); err != nil {
+		log.Errorf("[cashu claim] sender %s could not pay mint invoice: %s", GetUserStr(from.Telegram), err.Error())
+		ctx.Context = context.WithValue(ctx, "callback_response", Translate(ctx, "balanceTooLowMessage"))
+		return ctx, err
+	}
+	time.Sleep(2 * time.Second)
+	tokenStr, err := bot.CashuClient.MintTokens(quote.Quote, amount, inlineCashu.Memo)
+	if err != nil {
+		// ponytail: sender already paid; the paid quote is a bearer credit.
+		// Log the id loudly so the sats are recoverable rather than silently lost.
+		log.Errorf("[cashu claim] MintTokens failed AFTER sender paid, recoverable quote=%s: %s", quote.Quote, err.Error())
+		ctx.Context = context.WithValue(ctx, "callback_response", Translate(ctx, "cashuMintErrorMessage"))
+		return ctx, err
+	}
+
+	token, err := cashu.Deserialize(tokenStr)
+	if err != nil {
+		log.Errorf("[cashu claim] deserialize freshly minted token failed: %s", err.Error())
 		return ctx, err
 	}
 
@@ -295,25 +294,8 @@ func (bot *TipBot) cancelInlineCashuHandler(ctx intercept.Context) (intercept.Co
 		return ctx, errors.Create(errors.NotActiveError)
 	}
 
-	// Redeem the token back to the creator's wallet
-	token, err := cashu.Deserialize(inlineCashu.Token)
-	if err == nil && len(token.Token) > 0 && len(token.Token[0].Proofs) > 0 {
-		// Try to redeem back to creator
-		proofs := token.Token[0].Proofs
-		totalAmount := token.Amount()
-
-		invoice, err := user.Wallet.Invoice(lnbits.InvoiceParams{
-			Out:    false,
-			Amount: totalAmount,
-			Memo:   "Cashu token cancel refund",
-		}, bot.Client)
-		if err == nil {
-			meltQuote, err := bot.CashuClient.MeltQuote(invoice.PaymentRequest, "sat")
-			if err == nil {
-				bot.CashuClient.Melt(meltQuote.Quote, proofs)
-			}
-		}
-	}
+	// ponytail: nothing to refund — the token is only minted on claim, so an
+	// unclaimed cancel never spent the creator's sats.
 
 	// Mark as inactive
 	inlineCashu.Active = false
