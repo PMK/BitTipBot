@@ -47,7 +47,7 @@ func (bot *TipBot) cashuHandler(ctx intercept.Context) (intercept.Context, error
 		if len(args) > 2 {
 			memo = strings.Join(args[2:], " ")
 		}
-		return bot.requestCashuMint(ctx, amount, memo, !m.Private(), m.Chat)
+		return bot.requestCashuMint(ctx, amount, memo, !m.Private(), m.Chat, 0, "")
 	}
 
 	// Named subcommands are DM-only: receive/list would leak tokens or private
@@ -85,10 +85,26 @@ var (
 // CashuMintRequest is a pending /cashu mint awaiting user confirmation.
 type CashuMintRequest struct {
 	*storage.Base
-	TelegramID int64  `json:"cashu_mint_req_telegram_id"`
-	Amount     int64  `json:"cashu_mint_req_amount"`
-	Memo       string `json:"cashu_mint_req_memo"`
-	Public     bool   `json:"cashu_mint_req_public"` // post token into the chat instead of DM
+	TelegramID    int64  `json:"cashu_mint_req_telegram_id"`
+	Amount        int64  `json:"cashu_mint_req_amount"`
+	Memo          string `json:"cashu_mint_req_memo"`
+	Public        bool   `json:"cashu_mint_req_public"`         // post token into the chat instead of DM
+	RecipientID   int64  `json:"cashu_mint_req_recipient_id"`   // /cashutip as reply: only this user may collect (0 = anyone)
+	RecipientName string `json:"cashu_mint_req_recipient_name"` // for display
+}
+
+// cashuTipRecipient extracts the intended recipient when /cashutip is used as
+// a reply to someone's message. Self-replies and replies to the bot yield no
+// restriction (anyone may collect).
+func (bot *TipBot) cashuTipRecipient(m *tb.Message) (int64, string) {
+	if m.ReplyTo == nil || m.ReplyTo.Sender == nil {
+		return 0, ""
+	}
+	r := m.ReplyTo.Sender
+	if r.ID == m.Sender.ID || r.ID == bot.Telegram.Me.ID {
+		return 0, ""
+	}
+	return r.ID, GetUserStr(r)
 }
 
 func (bot *TipBot) makeCashuMintConfirmKeyboard(id string) *tb.ReplyMarkup {
@@ -121,7 +137,7 @@ func (bot *TipBot) cashuMintHandler(ctx intercept.Context) (intercept.Context, e
 		memo = strings.Join(args[3:], " ")
 	}
 
-	return bot.requestCashuMint(ctx, amount, memo, false, m.Chat)
+	return bot.requestCashuMint(ctx, amount, memo, false, m.Chat, 0, "")
 }
 
 // cashuTipHandler handles /cashutip [amount] [memo] in a group. Without an
@@ -138,6 +154,9 @@ func (bot *TipBot) cashuTipHandler(ctx intercept.Context) (intercept.Context, er
 		return ctx, errors.Create(errors.UserNoWalletError)
 	}
 
+	// Used as a reply to someone's message = tip locked to that user.
+	recipientID, recipientName := bot.cashuTipRecipient(m)
+
 	args := strings.Fields(m.Text)
 	if len(args) > 1 {
 		if amount, err := GetAmount(args[1]); err == nil && amount >= 1 {
@@ -145,7 +164,7 @@ func (bot *TipBot) cashuTipHandler(ctx intercept.Context) (intercept.Context, er
 			if len(args) > 2 {
 				memo = strings.Join(args[2:], " ")
 			}
-			return bot.requestCashuMint(ctx, amount, memo, !m.Private(), m.Chat)
+			return bot.requestCashuMint(ctx, amount, memo, !m.Private(), m.Chat, recipientID, recipientName)
 		}
 	}
 
@@ -155,9 +174,11 @@ func (bot *TipBot) cashuTipHandler(ctx intercept.Context) (intercept.Context, er
 	// a public "enter amount" prompt or a DM detour.)
 	NewMessage(m, WithDuration(0, bot))
 	req := &CashuMintRequest{
-		Base:       storage.New(storage.ID(fmt.Sprintf("cashu-mint-req:%d:%s", m.Sender.ID, RandStringRunes(8)))),
-		TelegramID: m.Sender.ID,
-		Public:     !m.Private(),
+		Base:          storage.New(storage.ID(fmt.Sprintf("cashu-mint-req:%d:%s", m.Sender.ID, RandStringRunes(8)))),
+		TelegramID:    m.Sender.ID,
+		Public:        !m.Private(),
+		RecipientID:   recipientID,
+		RecipientName: recipientName,
 	}
 	if err := req.Set(req, bot.Bunt); err != nil {
 		return ctx, err
@@ -244,7 +265,7 @@ func (bot *TipBot) cashuTipAmountHandler(ctx intercept.Context) (intercept.Conte
 // Money only moves after the user taps Confirm (confirmCashuMintHandler).
 // public = post the resulting token into chat (group drop); chat is where the
 // confirmation (and later the Collect message) is posted.
-func (bot *TipBot) requestCashuMint(ctx intercept.Context, amount int64, memo string, public bool, chat *tb.Chat) (intercept.Context, error) {
+func (bot *TipBot) requestCashuMint(ctx intercept.Context, amount int64, memo string, public bool, chat *tb.Chat, recipientID int64, recipientName string) (intercept.Context, error) {
 	m := ctx.Message()
 	user := LoadUser(ctx)
 	if user.Wallet.ID == "" {
@@ -270,11 +291,13 @@ func (bot *TipBot) requestCashuMint(ctx intercept.Context, amount int64, memo st
 
 	// Store the pending request and ask for confirmation.
 	req := &CashuMintRequest{
-		Base:       storage.New(storage.ID(fmt.Sprintf("cashu-mint-req:%d:%s", m.Sender.ID, RandStringRunes(8)))),
-		TelegramID: m.Sender.ID,
-		Amount:     amount,
-		Memo:       memo,
-		Public:     public,
+		Base:          storage.New(storage.ID(fmt.Sprintf("cashu-mint-req:%d:%s", m.Sender.ID, RandStringRunes(8)))),
+		TelegramID:    m.Sender.ID,
+		Amount:        amount,
+		Memo:          memo,
+		Public:        public,
+		RecipientID:   recipientID,
+		RecipientName: recipientName,
 	}
 	if err := req.Set(req, bot.Bunt); err != nil {
 		log.Errorf("[cashu mint] could not persist mint request: %s", err.Error())
@@ -353,7 +376,7 @@ func (bot *TipBot) confirmCashuMintHandler(ctx intercept.Context) (intercept.Con
 	}
 
 	if req.Public {
-		return bot.postCashuShare(ctx, user, c.Message, req.Amount, req.Memo)
+		return bot.postCashuShare(ctx, user, c.Message, req.Amount, req.Memo, req.RecipientID, req.RecipientName)
 	}
 
 	return bot.executeCashuMint(ctx, user, c.Sender, c.Message, req.Amount, req.Memo)
@@ -363,9 +386,12 @@ func (bot *TipBot) confirmCashuMintHandler(ctx intercept.Context) (intercept.Con
 // the sender's wallet is only charged when someone actually collects
 // (acceptInlineCashuHandler), backed by the same InlineCashu record the
 // inline flow uses.
-func (bot *TipBot) postCashuShare(ctx intercept.Context, user *lnbits.User, msg *tb.Message, amount int64, memo string) (intercept.Context, error) {
+func (bot *TipBot) postCashuShare(ctx intercept.Context, user *lnbits.User, msg *tb.Message, amount int64, memo string, recipientID int64, recipientName string) (intercept.Context, error) {
 	id := fmt.Sprintf("cashu:%s:%d", RandStringRunes(10), amount)
 	shareMsg := fmt.Sprintf(Translate(ctx, "cashuSendMessage"), GetUserStrMd(user.Telegram), amount)
+	if recipientID != 0 {
+		shareMsg += fmt.Sprintf("\nFor %s only.", str.MarkdownEscape(recipientName))
+	}
 	if len(memo) > 0 {
 		shareMsg += fmt.Sprintf("\n_Memo: %s_", str.MarkdownEscape(memo))
 	}
@@ -373,9 +399,11 @@ func (bot *TipBot) postCashuShare(ctx intercept.Context, user *lnbits.User, msg 
 		Base:         storage.New(storage.ID(id)),
 		Message:      shareMsg,
 		Amount:       amount,
-		From:         user,
-		Memo:         memo,
-		LanguageCode: "en",
+		From:          user,
+		Memo:          memo,
+		RecipientID:   recipientID,
+		RecipientName: recipientName,
+		LanguageCode:  "en",
 	}
 	if err := ic.Set(ic, bot.Bunt); err != nil {
 		log.Errorf("[cashu share] could not persist share: %s", err.Error())

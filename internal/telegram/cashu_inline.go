@@ -35,7 +35,10 @@ type InlineCashu struct {
 	From         *lnbits.User `json:"inline_cashu_from"`
 	Token        string       `json:"inline_cashu_token"`
 	Memo         string       `json:"inline_cashu_memo"`
-	Claimed      bool         `json:"inline_cashu_claimed"`
+	// RecipientID != 0 locks collection to that user (/cashutip as a reply).
+	RecipientID   int64  `json:"inline_cashu_recipient_id"`
+	RecipientName string `json:"inline_cashu_recipient_name"`
+	Claimed       bool   `json:"inline_cashu_claimed"`
 	ClaimedBy    *lnbits.User `json:"inline_cashu_claimed_by,omitempty"`
 	LanguageCode string       `json:"languagecode"`
 }
@@ -183,6 +186,12 @@ func (bot *TipBot) acceptInlineCashuHandler(ctx intercept.Context) (intercept.Co
 	if from.Telegram.ID == to.Telegram.ID {
 		ctx.Context = context.WithValue(ctx, "callback_response", Translate(ctx, "sendYourselfMessage"))
 		return ctx, errors.Create(errors.SelfPaymentError)
+	}
+
+	// Targeted tip: only the intended recipient may collect.
+	if inlineCashu.RecipientID != 0 && to.Telegram.ID != inlineCashu.RecipientID {
+		ctx.Context = context.WithValue(ctx, "callback_response", fmt.Sprintf("🥜 This tip is for %s.", inlineCashu.RecipientName))
+		return ctx, errors.Create(errors.UnknownError)
 	}
 
 	// Immediate feedback: strip the buttons and show progress. The whole flow
