@@ -64,8 +64,20 @@ func (bot *TipBot) publishNostrEvent(ev nostr.Event, relays []string) {
 	ev.Sign(pk)
 	log.Debugf("[NOSTR] 🟣 publishing nostr event %s", ev.ID)
 
-	// more relays
-	relays = append(relays, "wss://relay.nostr.ch", "wss://eden.nostr.land", "wss://nostr.btcmp.com", "wss://nostr.relayer.se", "wss://relay.current.fyi", "wss://nos.lol", "wss://nostr.mom", "wss://relay.nostr.info", "wss://nostr.zebedee.cloud", "wss://nostr-pub.wellorder.net", "wss://relay.snort.social/", "wss://relay.damus.io/", "wss://nostr.oxtr.dev/", "wss://nostr.fmt.wiz.biz/", "wss://brb.io")
+	// Default relays the zap receipt is published to, in addition to the ones
+	// from the zap request. Large, reliably-up, write-accepting relays only —
+	// profile-only or paid-write relays don't help kind-9735 receipts.
+	relays = append(relays,
+		"wss://relay.damus.io",
+		"wss://nos.lol",
+		"wss://relay.primal.net",
+		"wss://relay.nostr.band",
+		"wss://relay.snort.social",
+		"wss://nostr.mom",
+		"wss://nostr.oxtr.dev",
+		"wss://offchain.pub",
+		"wss://nostr.bitcoiner.social",
+	)
 
 	// remove trailing /
 	relays = cleanUrls(relays)

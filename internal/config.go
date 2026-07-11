@@ -16,7 +16,14 @@ var Configuration = struct {
 	Lnbits   LnbitsConfiguration   `yaml:"lnbits"`
 	Generate GenerateConfiguration `yaml:"generate"`
 	Nostr    NostrConfiguration    `yaml:"nostr"`
+	Cashu    CashuConfiguration    `yaml:"cashu"`
 }{}
+
+type CashuConfiguration struct {
+	Enabled bool   `yaml:"enabled"`
+	MintURL string `yaml:"mint_url"`
+	Unit    string `yaml:"unit"`
+}
 
 type NostrConfiguration struct {
 	PrivateKey string `yaml:"private_key"`
@@ -88,6 +95,19 @@ func init() {
 	}
 	Configuration.Bot.LNURLHostUrl = hostname
 	checkLnbitsConfiguration()
+	checkCashuConfiguration()
+}
+
+func checkCashuConfiguration() {
+	if Configuration.Cashu.Enabled && Configuration.Cashu.MintURL == "" {
+		log.Warnf("Cashu is enabled but no mint_url configured, disabling cashu support")
+		Configuration.Cashu.Enabled = false
+	}
+	if Configuration.Cashu.Unit == "" {
+		Configuration.Cashu.Unit = "sat"
+	}
+	// Remove trailing slash from mint URL
+	Configuration.Cashu.MintURL = strings.TrimSuffix(Configuration.Cashu.MintURL, "/")
 }
 
 func checkLnbitsConfiguration() {

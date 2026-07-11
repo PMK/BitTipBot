@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"image"
 	"image/jpeg"
+	_ "image/png" // registers the PNG decoder for image.Decode (QR files)
 	"strings"
 
+	"github.com/LightningTipBot/LightningTipBot/internal"
 	"github.com/LightningTipBot/LightningTipBot/internal/telegram/intercept"
 
 	"github.com/LightningTipBot/LightningTipBot/internal/errors"
@@ -25,9 +27,14 @@ import (
 func TryRecognizeQrCode(img image.Image) (*gozxing.Result, error) {
 	// check for qr code
 	bmp, _ := gozxing.NewBinaryBitmapFromImage(img)
-	// decode image
+	// decode image; TRY_HARDER spends more CPU but survives the JPEG
+	// compression Telegram applies, which dense QRs (large cashu tokens)
+	// otherwise don't.
 	qrReader := qrcode.NewQRCodeReader()
-	result, err := qrReader.Decode(bmp, nil)
+	hints := map[gozxing.DecodeHintType]interface{}{
+		gozxing.DecodeHintType_TRY_HARDER: true,
+	}
+	result, err := qrReader.Decode(bmp, hints)
 	if err != nil {
 		return nil, err
 	}
@@ -37,7 +44,18 @@ func TryRecognizeQrCode(img image.Image) (*gozxing.Result, error) {
 		// invoke payment confirmation ctx
 		return result, nil
 	}
+	if isCashuToken(result.String()) {
+		return result, nil
+	}
 	return nil, fmt.Errorf("no codes found")
+}
+
+// isCashuToken reports whether s looks like a cashu token. The prefix check is
+// case-insensitive but the token itself is returned verbatim: base64 payloads
+// are case-sensitive.
+func isCashuToken(s string) bool {
+	s = strings.ToLower(strings.TrimSpace(s))
+	return strings.HasPrefix(s, "cashua") || strings.HasPrefix(s, "cashub")
 }
 
 // photoHandler is the handler function for every photo from a private chat that the bot receives
@@ -68,11 +86,58 @@ func (bot *TipBot) photoHandler(ctx intercept.Context) (intercept.Context, error
 		log.Errorf("[photoHandler] image.Decode error: %v\n", err.Error())
 		return ctx, err
 	}
+	return bot.routeQrImage(ctx, img)
+}
+
+// documentHandler handles image files sent as documents. Documents skip
+// Telegram's photo compression, so dense QR codes (large cashu tokens) that
+// are unreadable as photos decode fine as files.
+func (bot *TipBot) documentHandler(ctx intercept.Context) (intercept.Context, error) {
+	m := ctx.Message()
+	if m.Document != nil {
+		log.Infof("[documentHandler] received document from %s: mime=%q filename=%q size=%d", GetUserStr(m.Sender), m.Document.MIME, m.Document.FileName, m.Document.FileSize)
+	} else {
+		log.Infof("[documentHandler] fired without document from %s", GetUserStr(m.Sender))
+	}
+	if m.Chat.Type != tb.ChatPrivate {
+		return ctx, errors.Create(errors.NoPrivateChatError)
+	}
+	if m.Document == nil || !strings.HasPrefix(m.Document.MIME, "image/") {
+		// not an image file — none of our business
+		return ctx, nil
+	}
+
+	reader, err := bot.Telegram.File(m.Document.MediaFile())
+	if err != nil {
+		log.Errorf("[documentHandler] getfile error: %v\n", err.Error())
+		return ctx, err
+	}
+	// image.Decode picks the right decoder (png/jpeg) from the data
+	img, _, err := image.Decode(reader)
+	if err != nil {
+		log.Errorf("[documentHandler] image.Decode error: %v\n", err.Error())
+		return ctx, err
+	}
+	return bot.routeQrImage(ctx, img)
+}
+
+// routeQrImage decodes a QR from img and dispatches its payload (invoice,
+// LNURL, or cashu token).
+func (bot *TipBot) routeQrImage(ctx intercept.Context, img image.Image) (intercept.Context, error) {
+	m := ctx.Message()
+	user := LoadUser(ctx)
 	data, err := TryRecognizeQrCode(img)
 	if err != nil {
 		log.Errorf("[photoHandler] tryRecognizeQrCodes error: %v\n", err.Error())
 		bot.trySendMessage(m.Sender, Translate(ctx, "photoQrNotRecognizedMessage"))
 		return ctx, err
+	}
+
+	// Cashu token QR: redeem straight to the user's wallet. Checked before the
+	// generic "recognized" echo so the (long) token isn't parroted back.
+	// Lightning invoice/lnurl QR handling below is untouched.
+	if internal.Configuration.Cashu.Enabled && isCashuToken(data.String()) {
+		return bot.redeemCashuToken(ctx, strings.TrimSpace(data.String()), user, m.Sender)
 	}
 
 	bot.trySendMessage(m.Sender, fmt.Sprintf(Translate(ctx, "photoQrRecognizedMessage"), data.String()))

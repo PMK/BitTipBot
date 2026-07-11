@@ -231,7 +231,7 @@ donateHelpText           = """📖 Oops, that didn't work. %s
 
 # PHOTO
 
-photoQrNotRecognizedMessage = """🚫 Could not recognize a Lightning invoice or a LNURL. Try to center the QR code, crop the photo, or zoom in."""
+photoQrNotRecognizedMessage = """🚫 Could not recognize a Lightning invoice, LNURL, or Cashu token. Try to center the QR code, crop the photo, or zoom in. For big Cashu tokens, copy-paste the token text instead — large QR codes often don't survive photo compression."""
 photoQrRecognizedMessage = """✅ QR code:
 `%s`"""
 
@@ -410,3 +410,35 @@ For users (in private chat): `/join <group_name>`\nExample: `/join TheBestBitcoi
 generateDalleHelpMessage        = """Generate images using OpenAI DALLE 2.\nUsage: `/generate <prompt>`\nPrice: 1000 sat"""
 generateDallePayInvoiceMessage  = """Pay this invoice to generate four images 👇"""
 generateDalleGeneratingMessage  = """Your images are being generated. Please wait..."""
+
+# CASHU ECASH
+cashuCommandStr = """cashu"""
+cashuHelpText = """🥜 *Cashu ecash tokens*
+
+`/cashu <amount> [memo]` — Mint an ecash token (in a group: share it with a Collect button, first come first served)
+`/cashu mint <amount> [memo]` — Create an ecash token
+`/cashu receive <token>` — Redeem a cashu token to your wallet
+`/cashu send <amount> [memo]` — Create a cashu token to share
+`/cashu list` — Show your unclaimed cashu tokens
+`/cashu recover` — Finish any paid-but-unminted tokens
+
+Cashu tokens are digital bearer tokens backed by Bitcoin Lightning. You can copy-paste them, share them offline, or drop them in group chats."""
+
+cashuMintMessage = """🥜 Creating a %d sat cashu token..."""
+cashuMintSuccessMessage = """🥜 *Cashu Token Created*\n\nAmount: *%d sat*\n\nCopy this token to share it:"""
+cashuReceiveSuccessMessage = """🥜 *Token Redeemed*\n\n*%d sat* have been added to your wallet."""
+cashuTokenInvalidMessage = """🥜 Invalid cashu token. Make sure you copied the full token string starting with `cashuA`."""
+cashuTokenSpentMessage = """🥜 This token has already been redeemed."""
+cashuMintErrorMessage = """🥜 Error communicating with the cashu mint. Please try again later."""
+cashuDisabledMessage = """🥜 Cashu ecash support is not enabled on this bot."""
+cashuMintMismatchMessage = """🥜 This token is from a different mint. This bot only accepts tokens from `%s`."""
+cashuFeeTooHighMessage = """🥜 Cannot redeem: the token has %d sat but melt fees would cost %d sat."""
+cashuSendMessage = """🥜 *%s* is sharing *%d sat* as ecash."""
+cashuSendClaimedMessage = """🥜 *%d sat* — Collected ✅ by %s"""
+cashuSendCancelledMessage = """🥜 Cashu token cancelled."""
+cashuAlreadyClaimedMessage = """This token has already been claimed."""
+cashuClaimButtonMessage = """🥜 Collect"""
+inlineQueryCashuTitle = """🥜 Share ecash token"""
+inlineQueryCashuDescription = """Usage: @%s cashu <amount> [memo]"""
+inlineResultCashuTitle = """🥜 Share %d sat ecash token"""
+inlineResultCashuDescription = """Tap to share this ecash token in the chat."""

@@ -31,5 +31,13 @@ func (bot *TipBot) fileHandler(ctx intercept.Context) (intercept.Context, error)
 
 		return c(ctx)
 	}
+
+	// No state waiting for a file: an image document may be a QR code
+	// (large cashu token QRs only survive Telegram uncompressed, as files).
+	// NOTE: tb.OnDocument is registered exactly once, on this handler —
+	// telebot keeps one handler per endpoint, last registration wins.
+	if m.Document != nil {
+		return bot.documentHandler(ctx)
+	}
 	return ctx, errors.Create(errors.NoFileFoundError)
 }
