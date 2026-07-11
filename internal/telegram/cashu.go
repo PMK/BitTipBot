@@ -38,6 +38,23 @@ func (bot *TipBot) cashuHandler(ctx intercept.Context) (intercept.Context, error
 		return ctx, nil
 	}
 
+	// Bare amount: "/cashu 210 [memo]" — mint-and-share into the current chat
+	// (group drop) or plain mint in a DM. This is what most users type first.
+	if amount, err := GetAmount(args[1]); err == nil && amount >= 1 {
+		memo := ""
+		if len(args) > 2 {
+			memo = strings.Join(args[2:], " ")
+		}
+		return bot.requestCashuMint(ctx, amount, memo, !m.Private())
+	}
+
+	// Named subcommands are DM-only: receive/list would leak tokens or private
+	// state into the group, and mint/send have the bare-amount form there.
+	if !m.Private() {
+		bot.trySendMessage(m.Chat, fmt.Sprintf("🥜 Use `/cashu <amount>` here to share ecash, or DM @%s for all other cashu commands.", bot.Telegram.Me.Username))
+		return ctx, errors.Create(errors.InvalidSyntaxError)
+	}
+
 	subcommand := strings.ToLower(args[1])
 	switch subcommand {
 	case "mint":
@@ -68,6 +85,7 @@ type CashuMintRequest struct {
 	TelegramID int64  `json:"cashu_mint_req_telegram_id"`
 	Amount     int64  `json:"cashu_mint_req_amount"`
 	Memo       string `json:"cashu_mint_req_memo"`
+	Public     bool   `json:"cashu_mint_req_public"` // post token into the chat instead of DM
 }
 
 func (bot *TipBot) makeCashuMintConfirmKeyboard(id string) *tb.ReplyMarkup {
@@ -78,15 +96,9 @@ func (bot *TipBot) makeCashuMintConfirmKeyboard(id string) *tb.ReplyMarkup {
 	return menu
 }
 
-// cashuMintHandler handles /cashu mint <amount> [memo].
-// It validates the request and asks for confirmation; money only moves after
-// the user taps Confirm (confirmCashuMintHandler).
+// cashuMintHandler handles /cashu mint <amount> [memo] in DMs.
 func (bot *TipBot) cashuMintHandler(ctx intercept.Context) (intercept.Context, error) {
 	m := ctx.Message()
-	user := LoadUser(ctx)
-	if user.Wallet.ID == "" {
-		return ctx, errors.Create(errors.UserNoWalletError)
-	}
 
 	// Parse: /cashu mint <amount> [memo]
 	args := strings.Fields(m.Text)
@@ -104,6 +116,19 @@ func (bot *TipBot) cashuMintHandler(ctx intercept.Context) (intercept.Context, e
 	memo := ""
 	if len(args) > 3 {
 		memo = strings.Join(args[3:], " ")
+	}
+
+	return bot.requestCashuMint(ctx, amount, memo, false)
+}
+
+// requestCashuMint validates a mint/share request and asks for confirmation.
+// Money only moves after the user taps Confirm (confirmCashuMintHandler).
+// public = post the resulting token into the originating chat (group drop).
+func (bot *TipBot) requestCashuMint(ctx intercept.Context, amount int64, memo string, public bool) (intercept.Context, error) {
+	m := ctx.Message()
+	user := LoadUser(ctx)
+	if user.Wallet.ID == "" {
+		return ctx, errors.Create(errors.UserNoWalletError)
 	}
 
 	// Check user balance
@@ -129,17 +154,25 @@ func (bot *TipBot) cashuMintHandler(ctx intercept.Context) (intercept.Context, e
 		TelegramID: m.Sender.ID,
 		Amount:     amount,
 		Memo:       memo,
+		Public:     public,
 	}
 	if err := req.Set(req, bot.Bunt); err != nil {
 		log.Errorf("[cashu mint] could not persist mint request: %s", err.Error())
 		return ctx, err
 	}
 
-	confirmText := fmt.Sprintf("🥜 Mint a *%d sat* cashu token?\nThis pays %d sat from your wallet to the mint `%s`.", amount, amount, str.MarkdownEscape(bot.CashuClient.MintURL()))
+	var confirmText string
+	if public {
+		confirmText = fmt.Sprintf("🥜 %s wants to share a *%d sat* ecash token in this chat.\nFirst to scan or redeem it gets the sats. Confirm?", GetUserStrMd(m.Sender), amount)
+	} else {
+		confirmText = fmt.Sprintf("🥜 Mint a *%d sat* cashu token?\nThis pays %d sat from your wallet to the mint `%s`.", amount, amount, str.MarkdownEscape(bot.CashuClient.MintURL()))
+	}
 	if len(memo) > 0 {
 		confirmText += fmt.Sprintf("\n_Memo: %s_", str.MarkdownEscape(memo))
 	}
-	bot.trySendMessage(m.Sender, confirmText, bot.makeCashuMintConfirmKeyboard(req.ID))
+	// The confirmation lives in the chat the command came from; only the
+	// requester can press its buttons.
+	bot.trySendMessage(m.Chat, confirmText, bot.makeCashuMintConfirmKeyboard(req.ID))
 	return ctx, nil
 }
 
@@ -176,7 +209,13 @@ func (bot *TipBot) confirmCashuMintHandler(ctx intercept.Context) (intercept.Con
 		return ctx, errors.Create(errors.InvalidSyntaxError)
 	}
 
-	return bot.executeCashuMint(ctx, user, c.Sender, c.Message, req.Amount, req.Memo)
+	// Public share: token goes into the chat the confirmation lives in.
+	// Private mint: token goes to the requester's DM.
+	var dest tb.Recipient = c.Sender
+	if req.Public {
+		dest = c.Message.Chat
+	}
+	return bot.executeCashuMint(ctx, user, c.Sender, c.Message, dest, req.Amount, req.Memo, req.Public)
 }
 
 // cancelCashuMintHandler runs when the user taps Cancel on a pending mint.
@@ -201,8 +240,9 @@ func (bot *TipBot) cancelCashuMintHandler(ctx intercept.Context) (intercept.Cont
 
 // executeCashuMint performs the actual quote -> pay -> mint flow after the
 // user confirmed. statusMsg (the confirmation message) is edited in place.
-func (bot *TipBot) executeCashuMint(ctx intercept.Context, user *lnbits.User, sender *tb.User, statusMsg *tb.Message, amount int64, memo string) (intercept.Context, error) {
-	m := &tb.Message{Sender: sender} // for the shared success-send path below
+// dest is where the token lands: the requester (DM mint) or a chat (group share).
+func (bot *TipBot) executeCashuMint(ctx intercept.Context, user *lnbits.User, sender *tb.User, statusMsg *tb.Message, dest tb.Recipient, amount int64, memo string, public bool) (intercept.Context, error) {
+	m := &tb.Message{Sender: sender} // ownership of the durable record
 	bot.tryEditMessage(statusMsg, fmt.Sprintf(Translate(ctx, "cashuMintMessage"), amount))
 
 	// Step 1: Request mint quote from the external Cashu mint
@@ -263,26 +303,35 @@ func (bot *TipBot) executeCashuMint(ctx intercept.Context, user *lnbits.User, se
 	record.State = cashuStateUnclaimed
 	_ = bot.setCashuToken(record)
 
+	// Build the announcement. The token string goes as its OWN message: it can
+	// exceed Telegram's 1024-char photo caption limit, and a standalone
+	// monospace message is easier to copy anyway.
+	var caption string
+	if public {
+		caption = fmt.Sprintf("🥜 %s is sharing *%d sat* as ecash — scan the QR with any cashu wallet or redeem the token below. First come, first served!", GetUserStrMd(sender), amount)
+	} else {
+		caption = fmt.Sprintf(Translate(ctx, "cashuMintSuccessMessage"), amount)
+	}
+
 	// Step 5: Generate QR code
 	qr, err := qrcode.Encode(tokenStr, qrcode.Medium, 512)
 	if err != nil {
 		log.Errorf("[cashu mint] QR code generation failed: %s", err.Error())
 		// Still send the token string even if QR fails
-		bot.tryEditMessage(statusMsg, fmt.Sprintf(Translate(ctx, "cashuMintSuccessMessage"), amount)+"\n\n`"+tokenStr+"`")
+		bot.tryEditMessage(statusMsg, caption)
+		bot.trySendMessage(dest, "`"+tokenStr+"`")
 		return ctx, nil
 	}
 
 	// Delete status message and send QR + token
 	bot.tryDeleteMessage(statusMsg)
-
-	caption := fmt.Sprintf(Translate(ctx, "cashuMintSuccessMessage"), amount) + "\n\n`" + tokenStr + "`"
-	photo := &tb.Photo{
+	bot.trySendMessage(dest, &tb.Photo{
 		File:    tb.FromReader(bytes.NewReader(qr)),
 		Caption: caption,
-	}
-	bot.trySendMessage(m.Sender, photo)
+	})
+	bot.trySendMessage(dest, "`"+tokenStr+"`")
 
-	log.Infof("[cashu mint] %s minted %d sat cashu token", GetUserStr(m.Sender), amount)
+	log.Infof("[cashu mint] %s minted %d sat cashu token (public=%v)", GetUserStr(sender), amount, public)
 	return ctx, nil
 }
 

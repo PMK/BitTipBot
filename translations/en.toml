@@ -415,6 +415,7 @@ generateDalleGeneratingMessage  = """Your images are being generated. Please wai
 cashuCommandStr = """cashu"""
 cashuHelpText = """🥜 *Cashu ecash tokens*
 
+`/cashu <amount> [memo]` — Mint an ecash token (in a group: share it in the chat, first come first served)
 `/cashu mint <amount> [memo]` — Create an ecash token
 `/cashu receive <token>` — Redeem a cashu token to your wallet
 `/cashu send <amount> [memo]` — Create a cashu token to share

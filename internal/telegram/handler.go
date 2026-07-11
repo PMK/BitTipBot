@@ -410,7 +410,8 @@ func (bot TipBot) getHandler() []InterceptionWrapper {
 			Handler:   bot.cashuHandler,
 			Interceptor: &Interceptor{
 				Before: []intercept.Func{
-					bot.requirePrivateChatInterceptor,
+					// group chats allowed: bare "/cashu <amount>" shares into the
+					// chat; the handler itself keeps subcommands DM-only
 					bot.localizerInterceptor,
 					bot.logMessageInterceptor,
 					bot.requireUserInterceptor,
