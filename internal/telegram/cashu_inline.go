@@ -12,6 +12,7 @@ import (
 	"github.com/LightningTipBot/LightningTipBot/internal/lnbits"
 	"github.com/LightningTipBot/LightningTipBot/internal/runtime/mutex"
 	"github.com/LightningTipBot/LightningTipBot/internal/storage"
+	"github.com/LightningTipBot/LightningTipBot/internal/str"
 	"github.com/LightningTipBot/LightningTipBot/internal/telegram/intercept"
 
 	"github.com/eko/gocache/store"
@@ -110,7 +111,8 @@ func (bot *TipBot) handleInlineCashuQuery(ctx intercept.Context) (intercept.Cont
 	id := fmt.Sprintf("cashu:%s:%d", RandStringRunes(10), amount)
 	inlineMessage := fmt.Sprintf(Translate(ctx, "cashuSendMessage"), GetUserStrMd(query.Sender), amount)
 	if len(memo) > 0 {
-		inlineMessage += fmt.Sprintf("\n_Memo: %s_", memo)
+		// User-controlled text rendered as Markdown in a public chat — escape it.
+		inlineMessage += fmt.Sprintf("\n_Memo: %s_", str.MarkdownEscape(memo))
 	}
 
 	inlineCashu := &InlineCashu{

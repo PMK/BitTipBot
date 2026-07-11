@@ -51,13 +51,19 @@ func BlindMessage(secret string) (*BlindingResult, error) {
 		return nil, fmt.Errorf("hash_to_curve failed: %w", err)
 	}
 
-	// Generate random blinding factor r
-	rBytes := make([]byte, 32)
-	_, err = rand.Read(rBytes)
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate random blinding factor: %w", err)
+	// Generate random blinding factor r. A zero r would send Y (and thus the
+	// secret's point) to the mint unblinded, so reject it outright.
+	var r *btcec.PrivateKey
+	for {
+		rBytes := make([]byte, 32)
+		if _, err := rand.Read(rBytes); err != nil {
+			return nil, fmt.Errorf("failed to generate random blinding factor: %w", err)
+		}
+		r, _ = btcec.PrivKeyFromBytes(rBytes)
+		if !r.Key.IsZero() {
+			break
+		}
 	}
-	r, _ := btcec.PrivKeyFromBytes(rBytes)
 
 	// r*G (the public key corresponding to r)
 	rG := r.PubKey()
@@ -132,10 +138,14 @@ func CalculateY(secret string) (string, error) {
 }
 
 // GenerateSecret creates a random 32-byte hex-encoded secret for a proof.
-func GenerateSecret() string {
+// The RNG error must not be ignored: a predictable secret is spendable by
+// anyone who can guess it.
+func GenerateSecret() (string, error) {
 	b := make([]byte, 32)
-	rand.Read(b)
-	return hex.EncodeToString(b)
+	if _, err := rand.Read(b); err != nil {
+		return "", fmt.Errorf("failed to generate proof secret: %w", err)
+	}
+	return hex.EncodeToString(b), nil
 }
 
 // SplitAmount decomposes a satoshi amount into powers of 2.

@@ -220,9 +220,11 @@ func (bot *TipBot) redeemCashuToken(ctx intercept.Context, tokenStr string, user
 		return ctx, fmt.Errorf("token has no proofs")
 	}
 
-	// Step 2: Validate the token's mint URL matches our configured mint
+	// Step 2: Validate the token's mint URL matches our configured mint.
+	// Normalize: trailing slashes and scheme/host case must not cause a
+	// same-mint token to be rejected.
 	tokenMintURL := token.Token[0].Mint
-	if tokenMintURL != bot.CashuClient.MintURL() {
+	if !sameMintURL(tokenMintURL, bot.CashuClient.MintURL()) {
 		log.Warnf("[cashu receive] Token from unknown mint: %s (expected: %s)", tokenMintURL, bot.CashuClient.MintURL())
 		bot.trySendMessage(recipient, fmt.Sprintf(Translate(ctx, "cashuMintMismatchMessage"), bot.CashuClient.MintURL()))
 		return ctx, fmt.Errorf("mint mismatch")
@@ -401,6 +403,13 @@ func (bot *TipBot) cashuRecoverHandler(ctx intercept.Context) (intercept.Context
 		bot.trySendMessage(m.Sender, fmt.Sprintf("🥜 Recovered %d token(s) to your wallet.", recovered))
 	}
 	return ctx, nil
+}
+
+// sameMintURL compares two mint URLs ignoring trailing slashes and case.
+// ponytail: string-level compare is enough for one configured mint; full URL
+// parsing only if multi-mint support ever lands.
+func sameMintURL(a, b string) bool {
+	return strings.EqualFold(strings.TrimRight(a, "/"), strings.TrimRight(b, "/"))
 }
 
 // truncate shortens a string for logging.

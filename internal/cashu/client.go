@@ -4,6 +4,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"strconv"
+	"time"
 
 	"github.com/imroc/req"
 	log "github.com/sirupsen/logrus"
@@ -13,12 +14,18 @@ import (
 type Client struct {
 	mintURL string
 	header  req.Header
+	http    *req.Req
 }
 
 // NewClient creates a new Cashu mint client.
 func NewClient(mintURL string) *Client {
+	// Own req instance with a timeout so a hung mint can't wedge a user's
+	// lock and goroutine forever (handlers hold a per-user lock while calling).
+	r := req.New()
+	r.SetTimeout(30 * time.Second)
 	return &Client{
 		mintURL: mintURL,
+		http:    r,
 		header: req.Header{
 			"Content-Type": "application/json",
 			"Accept":       "application/json",
@@ -33,7 +40,7 @@ func (c *Client) MintURL() string {
 
 // GetInfo fetches mint information (NUT-06).
 func (c *Client) GetInfo() (*MintInfo, error) {
-	resp, err := req.Get(c.mintURL+"/v1/info", c.header)
+	resp, err := c.http.Get(c.mintURL+"/v1/info", c.header)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get mint info: %w", err)
 	}
@@ -47,7 +54,7 @@ func (c *Client) GetInfo() (*MintInfo, error) {
 
 // GetKeysets fetches active keysets from the mint (NUT-01).
 func (c *Client) GetKeysets() (*KeysResponse, error) {
-	resp, err := req.Get(c.mintURL+"/v1/keys", c.header)
+	resp, err := c.http.Get(c.mintURL+"/v1/keys", c.header)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get keysets: %w", err)
 	}
@@ -66,7 +73,7 @@ func (c *Client) MintQuote(amount int64, unit string) (*MintQuoteResponse, error
 		Amount: amount,
 		Unit:   unit,
 	}
-	resp, err := req.Post(c.mintURL+"/v1/mint/quote/bolt11", c.header, req.BodyJSON(&body))
+	resp, err := c.http.Post(c.mintURL+"/v1/mint/quote/bolt11", c.header, req.BodyJSON(&body))
 	if err != nil {
 		return nil, fmt.Errorf("failed to request mint quote: %w", err)
 	}
@@ -80,7 +87,7 @@ func (c *Client) MintQuote(amount int64, unit string) (*MintQuoteResponse, error
 
 // CheckMintQuote checks the status of a mint quote (NUT-04).
 func (c *Client) CheckMintQuote(quoteId string) (*MintQuoteResponse, error) {
-	resp, err := req.Get(c.mintURL+"/v1/mint/quote/bolt11/"+quoteId, c.header)
+	resp, err := c.http.Get(c.mintURL+"/v1/mint/quote/bolt11/"+quoteId, c.header)
 	if err != nil {
 		return nil, fmt.Errorf("failed to check mint quote: %w", err)
 	}
@@ -98,7 +105,7 @@ func (c *Client) Mint(quoteId string, outputs []BlindedMessage) (*MintResponse, 
 		Quote:   quoteId,
 		Outputs: outputs,
 	}
-	resp, err := req.Post(c.mintURL+"/v1/mint/bolt11", c.header, req.BodyJSON(&body))
+	resp, err := c.http.Post(c.mintURL+"/v1/mint/bolt11", c.header, req.BodyJSON(&body))
 	if err != nil {
 		return nil, fmt.Errorf("failed to mint tokens: %w", err)
 	}
@@ -116,7 +123,7 @@ func (c *Client) MeltQuote(bolt11 string, unit string) (*MeltQuoteResponse, erro
 		Request: bolt11,
 		Unit:    unit,
 	}
-	resp, err := req.Post(c.mintURL+"/v1/melt/quote/bolt11", c.header, req.BodyJSON(&body))
+	resp, err := c.http.Post(c.mintURL+"/v1/melt/quote/bolt11", c.header, req.BodyJSON(&body))
 	if err != nil {
 		return nil, fmt.Errorf("failed to request melt quote: %w", err)
 	}
@@ -134,7 +141,7 @@ func (c *Client) Melt(quoteId string, inputs []Proof) (*MeltResponse, error) {
 		Quote:  quoteId,
 		Inputs: inputs,
 	}
-	resp, err := req.Post(c.mintURL+"/v1/melt/bolt11", c.header, req.BodyJSON(&body))
+	resp, err := c.http.Post(c.mintURL+"/v1/melt/bolt11", c.header, req.BodyJSON(&body))
 	if err != nil {
 		return nil, fmt.Errorf("failed to melt tokens: %w", err)
 	}
@@ -157,7 +164,7 @@ func (c *Client) CheckState(proofs []Proof) (*CheckStateResponse, error) {
 		ys[i] = y
 	}
 	body := CheckStateRequest{Ys: ys}
-	resp, err := req.Post(c.mintURL+"/v1/checkstate", c.header, req.BodyJSON(&body))
+	resp, err := c.http.Post(c.mintURL+"/v1/checkstate", c.header, req.BodyJSON(&body))
 	if err != nil {
 		return nil, fmt.Errorf("failed to check state: %w", err)
 	}
@@ -208,7 +215,11 @@ func (c *Client) MintTokens(quoteId string, amount int64, memo string) (string, 
 	outputs := make([]BlindedMessage, len(amounts))
 	blindingResults := make([]*BlindingResult, len(amounts))
 	for i, amt := range amounts {
-		br, err := BlindMessage(GenerateSecret())
+		secret, err := GenerateSecret()
+		if err != nil {
+			return "", err
+		}
+		br, err := BlindMessage(secret)
 		if err != nil {
 			return "", fmt.Errorf("failed to blind message: %w", err)
 		}
