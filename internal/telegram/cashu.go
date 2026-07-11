@@ -2,6 +2,7 @@ package telegram
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -193,12 +194,14 @@ func (bot *TipBot) confirmCashuMintHandler(ctx intercept.Context) (intercept.Con
 	}
 	req = fn.(*CashuMintRequest)
 
-	// Only the requester can confirm, and only once.
+	// Only the requester can confirm, and only once. Others get a toast so the
+	// button doesn't appear dead.
 	if req.TelegramID != user.Telegram.ID {
+		ctx.Context = context.WithValue(ctx, "callback_response", "🥜 Only the requester can confirm this.")
 		return ctx, errors.Create(errors.UnknownError)
 	}
 	if !req.Active {
-		bot.tryEditMessage(c.Message, "🥜 This mint request was already handled.", &tb.ReplyMarkup{})
+		ctx.Context = context.WithValue(ctx, "callback_response", "🥜 Already being processed.")
 		return ctx, errors.Create(errors.NotActiveError)
 	}
 	_ = req.Inactivate(req, bot.Bunt)
@@ -251,6 +254,7 @@ func (bot *TipBot) cancelCashuMintHandler(ctx intercept.Context) (intercept.Cont
 	}
 	req = fn.(*CashuMintRequest)
 	if req.TelegramID != user.Telegram.ID {
+		ctx.Context = context.WithValue(ctx, "callback_response", "🥜 Only the requester can cancel this.")
 		return ctx, errors.Create(errors.UnknownError)
 	}
 	_ = req.Inactivate(req, bot.Bunt)
