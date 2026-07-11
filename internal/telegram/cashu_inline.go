@@ -204,20 +204,37 @@ func (bot *TipBot) acceptInlineCashuHandler(ctx intercept.Context) (intercept.Co
 		ctx.Context = context.WithValue(ctx, "callback_response", Translate(ctx, "cashuMintErrorMessage"))
 		return ctx, err
 	}
+	// Durable record BEFORE paying, exactly like /cashu mint: if anything after
+	// the payment fails, the sender recovers via /cashu recover instead of
+	// losing the sats.
+	record := newCashuToken(from.Telegram.ID, from.Telegram.Username, amount, inlineCashu.Memo, quote.Quote)
+	if err := bot.setCashuToken(record); err != nil {
+		log.Errorf("[cashu claim] could not persist token record: %s", err.Error())
+		return ctx, err
+	}
 	if _, err = from.Wallet.Pay(lnbits.PaymentParams{Out: true, Bolt11: quote.Request}, bot.Client); err != nil {
 		log.Errorf("[cashu claim] sender %s could not pay mint invoice: %s", GetUserStr(from.Telegram), err.Error())
+		_ = record.Delete(record, bot.Bunt) // nothing was paid
 		ctx.Context = context.WithValue(ctx, "callback_response", Translate(ctx, "balanceTooLowMessage"))
 		return ctx, err
 	}
-	time.Sleep(2 * time.Second)
+	if paid, werr := bot.CashuClient.WaitQuotePaid(quote.Quote, 30*time.Second); !paid {
+		log.Errorf("[cashu claim] quote %s not settled after 30s (err=%v), sender can /cashu recover", quote.Quote, werr)
+		bot.trySendMessage(from.Telegram, "🥜 Your inline cashu payment hasn't settled at the mint yet. Run /cashu recover in a moment to reclaim it.")
+		ctx.Context = context.WithValue(ctx, "callback_response", Translate(ctx, "cashuMintErrorMessage"))
+		return ctx, fmt.Errorf("mint quote not settled in time")
+	}
 	tokenStr, err := bot.CashuClient.MintTokens(quote.Quote, amount, inlineCashu.Memo)
 	if err != nil {
-		// ponytail: sender already paid; the paid quote is a bearer credit.
-		// Log the id loudly so the sats are recoverable rather than silently lost.
+		// Sender paid; the minting-state record makes this recoverable.
 		log.Errorf("[cashu claim] MintTokens failed AFTER sender paid, recoverable quote=%s: %s", quote.Quote, err.Error())
+		bot.trySendMessage(from.Telegram, "🥜 Your inline cashu couldn't be minted yet. Run /cashu recover to reclaim it.")
 		ctx.Context = context.WithValue(ctx, "callback_response", Translate(ctx, "cashuMintErrorMessage"))
 		return ctx, err
 	}
+	record.Token = tokenStr
+	record.State = cashuStateUnclaimed
+	_ = bot.setCashuToken(record)
 
 	token, err := cashu.Deserialize(tokenStr)
 	if err != nil {
@@ -231,23 +248,17 @@ func (bot *TipBot) acceptInlineCashuHandler(ctx intercept.Context) (intercept.Co
 	// Deliver to the claimer by melting the proofs onto their wallet.
 	netAmount, err := bot.meltProofsToWallet(to, proofs, totalAmount)
 	if err != nil {
-		// Sender was already debited and a token minted, but delivery failed.
-		// Save the token to the sender's wallet so the sats are never lost.
-		rec := &CashuToken{
-			Base:       storage.New(storage.ID(cashuTokenKey(from.Telegram.ID, RandStringRunes(10)))),
-			TelegramID: from.Telegram.ID,
-			Username:   from.Telegram.Username,
-			Amount:     totalAmount,
-			Memo:       inlineCashu.Memo,
-			Token:      tokenStr,
-			State:      cashuStateUnclaimed,
-		}
-		_ = bot.setCashuToken(rec)
-		log.Errorf("[cashu claim] melt to claimer failed, saved token to sender %s: %s", GetUserStr(from.Telegram), err.Error())
+		// Sender was debited and a token minted, but delivery failed. The
+		// unclaimed record (stored above) keeps the token in the sender's wallet.
+		log.Errorf("[cashu claim] melt to claimer failed, token stays with sender %s: %s", GetUserStr(from.Telegram), err.Error())
 		bot.trySendMessage(from.Telegram, "🥜 Your inline cashu couldn't be delivered, so the token was saved to your wallet — see /cashu list.")
 		return ctx, err
 	}
 	totalAmount = netAmount
+
+	// Token consumed by the claimer: mark the sender's record spent.
+	record.State = cashuStateSpent
+	_ = bot.setCashuToken(record)
 
 	// Mark as claimed
 	inlineCashu.Claimed = true

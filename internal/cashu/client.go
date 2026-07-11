@@ -177,6 +177,24 @@ func (c *Client) CheckState(proofs []Proof) (*CheckStateResponse, error) {
 	return &stateResp, err
 }
 
+// WaitQuotePaid polls the mint until it sees the quote's invoice as paid.
+// LNbits returning from Pay only means our side sent the payment; the mint's
+// view can lag by seconds (observed with 21mint.me), and minting before it
+// settles fails with "quote not paid".
+func (c *Client) WaitQuotePaid(quoteId string, timeout time.Duration) (bool, error) {
+	deadline := time.Now().Add(timeout)
+	for {
+		q, err := c.CheckMintQuote(quoteId)
+		if err == nil && q.IsPaid() {
+			return true, nil
+		}
+		if time.Now().After(deadline) {
+			return false, err
+		}
+		time.Sleep(2 * time.Second)
+	}
+}
+
 // MintTokens is a high-level function that orchestrates the full minting flow:
 // 1. Get active keyset
 // 2. Split amount into power-of-2 denominations

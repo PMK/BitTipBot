@@ -239,8 +239,13 @@ func (bot *TipBot) executeCashuMint(ctx intercept.Context, user *lnbits.User, se
 
 	log.Infof("[cashu mint] Paid mint invoice for quote %s", quote.Quote)
 
-	// Step 3: Wait briefly for payment to settle, then check quote status
-	time.Sleep(2 * time.Second)
+	// Step 3: Wait until the MINT sees the payment as settled. Our Pay
+	// returning is not enough — minting too early fails with "quote not paid".
+	if paid, err := bot.CashuClient.WaitQuotePaid(quote.Quote, 30*time.Second); !paid {
+		log.Warnf("[cashu mint] quote %s not settled after 30s (err=%v)", quote.Quote, err)
+		bot.tryEditMessage(statusMsg, "🥜 Payment sent, but the mint hasn't confirmed it yet. Your token is saved — run /cashu recover in a moment to finish it.")
+		return ctx, fmt.Errorf("mint quote not settled in time")
+	}
 
 	// Step 4: Mint the tokens
 	tokenStr, err := bot.CashuClient.MintTokens(quote.Quote, amount, memo)
