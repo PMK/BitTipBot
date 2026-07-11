@@ -10,6 +10,8 @@ import (
 	"github.com/LightningTipBot/LightningTipBot/internal/cashu"
 	"github.com/LightningTipBot/LightningTipBot/internal/errors"
 	"github.com/LightningTipBot/LightningTipBot/internal/lnbits"
+	"github.com/LightningTipBot/LightningTipBot/internal/storage"
+	"github.com/LightningTipBot/LightningTipBot/internal/str"
 	"github.com/LightningTipBot/LightningTipBot/internal/telegram/intercept"
 	"github.com/skip2/go-qrcode"
 
@@ -54,8 +56,31 @@ func (bot *TipBot) cashuHandler(ctx intercept.Context) (intercept.Context, error
 	}
 }
 
-// cashuMintHandler handles /cashu mint <amount> [memo]
-// Creates ecash tokens by paying the external mint's Lightning invoice.
+var (
+	cashuMintConfirmationMenu = &tb.ReplyMarkup{ResizeKeyboard: true}
+	btnConfirmCashuMint       = cashuMintConfirmationMenu.Data("✅ Mint", "confirm_cashu_mint")
+	btnCancelCashuMint        = cashuMintConfirmationMenu.Data("🚫 Cancel", "cancel_cashu_mint")
+)
+
+// CashuMintRequest is a pending /cashu mint awaiting user confirmation.
+type CashuMintRequest struct {
+	*storage.Base
+	TelegramID int64  `json:"cashu_mint_req_telegram_id"`
+	Amount     int64  `json:"cashu_mint_req_amount"`
+	Memo       string `json:"cashu_mint_req_memo"`
+}
+
+func (bot *TipBot) makeCashuMintConfirmKeyboard(id string) *tb.ReplyMarkup {
+	menu := &tb.ReplyMarkup{ResizeKeyboard: true}
+	confirmBtn := menu.Data("✅ Mint", "confirm_cashu_mint", id)
+	cancelBtn := menu.Data("🚫 Cancel", "cancel_cashu_mint", id)
+	menu.Inline(menu.Row(confirmBtn, cancelBtn))
+	return menu
+}
+
+// cashuMintHandler handles /cashu mint <amount> [memo].
+// It validates the request and asks for confirmation; money only moves after
+// the user taps Confirm (confirmCashuMintHandler).
 func (bot *TipBot) cashuMintHandler(ctx intercept.Context) (intercept.Context, error) {
 	m := ctx.Message()
 	user := LoadUser(ctx)
@@ -98,8 +123,87 @@ func (bot *TipBot) cashuMintHandler(ctx intercept.Context) (intercept.Context, e
 		return ctx, errors.Create(errors.InvalidSyntaxError)
 	}
 
-	// Notify user we're working on it
-	statusMsg := bot.trySendMessage(m.Sender, fmt.Sprintf(Translate(ctx, "cashuMintMessage"), amount))
+	// Store the pending request and ask for confirmation.
+	req := &CashuMintRequest{
+		Base:       storage.New(storage.ID(fmt.Sprintf("cashu-mint-req:%d:%s", m.Sender.ID, RandStringRunes(8)))),
+		TelegramID: m.Sender.ID,
+		Amount:     amount,
+		Memo:       memo,
+	}
+	if err := req.Set(req, bot.Bunt); err != nil {
+		log.Errorf("[cashu mint] could not persist mint request: %s", err.Error())
+		return ctx, err
+	}
+
+	confirmText := fmt.Sprintf("🥜 Mint a *%d sat* cashu token?\nThis pays %d sat from your wallet to the mint `%s`.", amount, amount, str.MarkdownEscape(bot.CashuClient.MintURL()))
+	if len(memo) > 0 {
+		confirmText += fmt.Sprintf("\n_Memo: %s_", str.MarkdownEscape(memo))
+	}
+	bot.trySendMessage(m.Sender, confirmText, bot.makeCashuMintConfirmKeyboard(req.ID))
+	return ctx, nil
+}
+
+// confirmCashuMintHandler runs when the user taps Confirm on a pending mint.
+func (bot *TipBot) confirmCashuMintHandler(ctx intercept.Context) (intercept.Context, error) {
+	c := ctx.Callback()
+	user := LoadUser(ctx)
+	if user.Wallet.ID == "" {
+		return ctx, errors.Create(errors.UserNoWalletError)
+	}
+
+	req := &CashuMintRequest{Base: storage.New(storage.ID(c.Data))}
+	fn, err := req.Get(req, bot.Bunt)
+	if err != nil {
+		log.Errorf("[cashu confirm] request %s not found: %s", c.Data, err.Error())
+		bot.tryEditMessage(c.Message, "🥜 This mint request expired. Send the command again.", &tb.ReplyMarkup{})
+		return ctx, err
+	}
+	req = fn.(*CashuMintRequest)
+
+	// Only the requester can confirm, and only once.
+	if req.TelegramID != user.Telegram.ID {
+		return ctx, errors.Create(errors.UnknownError)
+	}
+	if !req.Active {
+		bot.tryEditMessage(c.Message, "🥜 This mint request was already handled.", &tb.ReplyMarkup{})
+		return ctx, errors.Create(errors.NotActiveError)
+	}
+	_ = req.Inactivate(req, bot.Bunt)
+
+	// Re-check the cap: requests could be confirmed out of order.
+	if pending, err := bot.countPendingCashuTokens(user.Telegram.ID); err == nil && pending >= maxPendingCashuTokens {
+		bot.tryEditMessage(c.Message, fmt.Sprintf("🥜 You have %d pending cashu tokens (max %d).", pending, maxPendingCashuTokens), &tb.ReplyMarkup{})
+		return ctx, errors.Create(errors.InvalidSyntaxError)
+	}
+
+	return bot.executeCashuMint(ctx, user, c.Sender, c.Message, req.Amount, req.Memo)
+}
+
+// cancelCashuMintHandler runs when the user taps Cancel on a pending mint.
+func (bot *TipBot) cancelCashuMintHandler(ctx intercept.Context) (intercept.Context, error) {
+	c := ctx.Callback()
+	user := LoadUser(ctx)
+
+	req := &CashuMintRequest{Base: storage.New(storage.ID(c.Data))}
+	fn, err := req.Get(req, bot.Bunt)
+	if err != nil {
+		bot.tryEditMessage(c.Message, Translate(ctx, "cashuSendCancelledMessage"), &tb.ReplyMarkup{})
+		return ctx, err
+	}
+	req = fn.(*CashuMintRequest)
+	if req.TelegramID != user.Telegram.ID {
+		return ctx, errors.Create(errors.UnknownError)
+	}
+	_ = req.Inactivate(req, bot.Bunt)
+	bot.tryEditMessage(c.Message, Translate(ctx, "cashuSendCancelledMessage"), &tb.ReplyMarkup{})
+	return ctx, nil
+}
+
+// executeCashuMint performs the actual quote -> pay -> mint flow after the
+// user confirmed. statusMsg (the confirmation message) is edited in place.
+func (bot *TipBot) executeCashuMint(ctx intercept.Context, user *lnbits.User, sender *tb.User, statusMsg *tb.Message, amount int64, memo string) (intercept.Context, error) {
+	m := &tb.Message{Sender: sender} // for the shared success-send path below
+	bot.tryEditMessage(statusMsg, fmt.Sprintf(Translate(ctx, "cashuMintMessage"), amount))
 
 	// Step 1: Request mint quote from the external Cashu mint
 	quote, err := bot.CashuClient.MintQuote(amount, "sat")

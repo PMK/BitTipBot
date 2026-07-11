@@ -690,6 +690,38 @@ func (bot TipBot) getHandler() []InterceptionWrapper {
 			Handler:   bot.anyChosenInlineHandler,
 		},
 		{
+			Endpoints: []interface{}{&btnConfirmCashuMint},
+			Handler:   bot.confirmCashuMintHandler,
+			Interceptor: &Interceptor{
+
+				Before: []intercept.Func{
+					bot.localizerInterceptor,
+					bot.requireUserInterceptor,
+					bot.answerCallbackInterceptor,
+					bot.lockInterceptor,
+				},
+				OnDefer: []intercept.Func{
+					bot.unlockInterceptor,
+				},
+			},
+		},
+		{
+			Endpoints: []interface{}{&btnCancelCashuMint},
+			Handler:   bot.cancelCashuMintHandler,
+			Interceptor: &Interceptor{
+
+				Before: []intercept.Func{
+					bot.localizerInterceptor,
+					bot.requireUserInterceptor,
+					bot.answerCallbackInterceptor,
+					bot.lockInterceptor,
+				},
+				OnDefer: []intercept.Func{
+					bot.unlockInterceptor,
+				},
+			},
+		},
+		{
 			Endpoints: []interface{}{&btnPay},
 			Handler:   bot.confirmPayHandler,
 			Interceptor: &Interceptor{
