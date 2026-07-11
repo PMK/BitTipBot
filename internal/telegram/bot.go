@@ -147,6 +147,9 @@ func (bot *TipBot) Start() {
 
 	go bot.restartPersistedTickets()
 
+	// re-drive stuck cashu mints in the background (no-op if cashu disabled)
+	go bot.cashuAutoRecoverLoop()
+
 	// gracefully shutdown on interrupt or termination signal.
 	// syscall.SIGSTOP is not catchable on any platform and is not defined on
 	// Windows, so it must not be passed to signal.Notify.
