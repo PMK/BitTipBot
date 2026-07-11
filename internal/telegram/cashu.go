@@ -352,6 +352,26 @@ func (bot *TipBot) executeCashuMint(ctx intercept.Context, user *lnbits.User, se
 	return ctx, nil
 }
 
+// cashuClaimAliasHandler handles top-level /claim <token> and /redeem <token>
+// (observed users trying these naturally). Same as /cashu receive.
+func (bot *TipBot) cashuClaimAliasHandler(ctx intercept.Context) (intercept.Context, error) {
+	m := ctx.Message()
+	if !internal.Configuration.Cashu.Enabled {
+		bot.trySendMessage(m.Sender, Translate(ctx, "cashuDisabledMessage"))
+		return ctx, errors.Create(errors.InvalidSyntaxError)
+	}
+	user := LoadUser(ctx)
+	if user.Wallet.ID == "" {
+		return ctx, errors.Create(errors.UserNoWalletError)
+	}
+	args := strings.Fields(m.Text)
+	if len(args) < 2 {
+		bot.trySendMessage(m.Sender, Translate(ctx, "cashuHelpText"))
+		return ctx, errors.Create(errors.InvalidSyntaxError)
+	}
+	return bot.redeemCashuToken(ctx, args[1], user, m.Sender)
+}
+
 // cashuReceiveHandler handles /cashu receive <token>
 // Redeems a cashu token by melting it at the mint (mint pays a Lightning invoice to user's wallet).
 func (bot *TipBot) cashuReceiveHandler(ctx intercept.Context) (intercept.Context, error) {
