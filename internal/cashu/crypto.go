@@ -5,7 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"math/big"
+	"strings"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
@@ -166,5 +166,67 @@ func PointToHex(p *btcec.PublicKey) string {
 	return hex.EncodeToString(p.SerializeCompressed())
 }
 
-// dummy use to satisfy the big import for potential future use
-var _ = new(big.Int)
+// hashE computes the NUT-12 challenge hash: SHA256 over the concatenated
+// lowercase-hex UNCOMPRESSED serializations of the given points, as UTF-8.
+func hashE(points ...*btcec.PublicKey) []byte {
+	var sb strings.Builder
+	for _, p := range points {
+		sb.WriteString(hex.EncodeToString(p.SerializeUncompressed()))
+	}
+	sum := sha256.Sum256([]byte(sb.String()))
+	return sum[:]
+}
+
+// VerifyDLEQ verifies a NUT-12 DLEQ proof for a blind signature, proving the
+// mint used the same private key k (with A = k*G published in the keyset) to
+// produce C_ = k*B_. Without this check a malicious mint could sign with a
+// throwaway key and later refuse the proofs as invalid.
+//
+//	R1 = s*G - e*A
+//	R2 = s*B_ - e*C_
+//	valid iff e == hash_e(R1, R2, A, C_)
+func VerifyDLEQ(eHex, sHex string, A *btcec.PublicKey, B_ *btcec.PublicKey, C_ *btcec.PublicKey) (bool, error) {
+	eBytes, err := hex.DecodeString(eHex)
+	if err != nil {
+		return false, fmt.Errorf("invalid dleq e: %w", err)
+	}
+	sBytes, err := hex.DecodeString(sHex)
+	if err != nil {
+		return false, fmt.Errorf("invalid dleq s: %w", err)
+	}
+	var eScalar, sScalar secp256k1.ModNScalar
+	if overflow := eScalar.SetByteSlice(eBytes); overflow {
+		return false, fmt.Errorf("dleq e overflows curve order")
+	}
+	if overflow := sScalar.SetByteSlice(sBytes); overflow {
+		return false, fmt.Errorf("dleq s overflows curve order")
+	}
+
+	// point = a*P + b*Q helper in Jacobian space
+	combine := func(a *secp256k1.ModNScalar, P *btcec.PublicKey, b *secp256k1.ModNScalar, Q *btcec.PublicKey) *btcec.PublicKey {
+		var pJ, qJ, aPJ, bQJ, sumJ secp256k1.JacobianPoint
+		P.AsJacobian(&pJ)
+		Q.AsJacobian(&qJ)
+		secp256k1.ScalarMultNonConst(a, &pJ, &aPJ)
+		secp256k1.ScalarMultNonConst(b, &qJ, &bQJ)
+		secp256k1.AddNonConst(&aPJ, &bQJ, &sumJ)
+		sumJ.ToAffine()
+		return btcec.NewPublicKey(&sumJ.X, &sumJ.Y)
+	}
+
+	negE := new(secp256k1.ModNScalar).NegateVal(&eScalar)
+
+	// R1 = s*G - e*A
+	var gJ secp256k1.JacobianPoint
+	secp256k1.ScalarBaseMultNonConst(&sScalar, &gJ)
+	gJ.ToAffine()
+	sG := btcec.NewPublicKey(&gJ.X, &gJ.Y)
+	one := new(secp256k1.ModNScalar).SetInt(1)
+	R1 := combine(one, sG, negE, A)
+
+	// R2 = s*B_ - e*C_
+	R2 := combine(&sScalar, B_, negE, C_)
+
+	expected := hashE(R1, R2, A, C_)
+	return hex.EncodeToString(expected) == strings.ToLower(eHex), nil
+}

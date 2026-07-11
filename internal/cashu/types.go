@@ -19,9 +19,17 @@ type BlindedMessage struct {
 
 // BlindSignature is returned by the mint (Step 2 of BDHKE).
 type BlindSignature struct {
-	Amount int64  `json:"amount"`
-	Id     string `json:"id"`
-	C_     string `json:"C_"` // blinded signature (compressed point hex)
+	Amount int64      `json:"amount"`
+	Id     string     `json:"id"`
+	C_     string     `json:"C_"` // blinded signature (compressed point hex)
+	DLEQ   *DLEQProof `json:"dleq,omitempty"`
+}
+
+// DLEQProof proves the mint signed with its published key (NUT-12).
+type DLEQProof struct {
+	E string `json:"e"`
+	S string `json:"s"`
+	R string `json:"r,omitempty"` // only present on proofs forwarded in tokens
 }
 
 // Keyset represents a mint keyset (NUT-01/NUT-02).

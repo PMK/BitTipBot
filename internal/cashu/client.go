@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/imroc/req"
 	log "github.com/sirupsen/logrus"
 )
@@ -243,12 +244,33 @@ func (c *Client) MintTokens(quoteId string, amount int64, memo string) (string, 
 
 	// Unblind signatures to get valid proofs
 	proofs := make([]Proof, len(mintResp.Signatures))
+	dleqMissing := 0
 	for i, sig := range mintResp.Signatures {
 		// Look up the mint's public key for this denomination
 		amtStr := strconv.FormatInt(sig.Amount, 10)
 		mintPubKey, ok := activeKeyset.Keys[amtStr]
 		if !ok {
 			return "", fmt.Errorf("no mint key found for amount %d", sig.Amount)
+		}
+
+		// NUT-12: verify the mint signed with its published key. Invalid proof =
+		// hard fail (the mint could later disown these tokens). Missing proof is
+		// tolerated with a warning since not every mint ships NUT-12.
+		if sig.DLEQ != nil {
+			A, err := parsePubKeyHex(mintPubKey)
+			if err != nil {
+				return "", fmt.Errorf("invalid mint key for amount %d: %w", sig.Amount, err)
+			}
+			C_, err := parsePubKeyHex(sig.C_)
+			if err != nil {
+				return "", fmt.Errorf("invalid C_ from mint: %w", err)
+			}
+			valid, err := VerifyDLEQ(sig.DLEQ.E, sig.DLEQ.S, A, blindingResults[i].B_, C_)
+			if err != nil || !valid {
+				return "", fmt.Errorf("mint returned invalid DLEQ proof for amount %d (err=%v)", sig.Amount, err)
+			}
+		} else {
+			dleqMissing++
 		}
 
 		// Unblind: C = C_ - r*K
@@ -282,8 +304,20 @@ func (c *Client) MintTokens(quoteId string, amount int64, memo string) (string, 
 		return "", fmt.Errorf("failed to serialize token: %w", err)
 	}
 
+	if dleqMissing > 0 {
+		log.Warnf("[cashu] mint did not include DLEQ proofs for %d/%d signatures (NUT-12 unsupported?)", dleqMissing, len(mintResp.Signatures))
+	}
 	log.Infof("[cashu] Minted %d sat token with %d proofs", amount, len(proofs))
 	return tokenStr, nil
+}
+
+// parsePubKeyHex parses a compressed secp256k1 point from hex.
+func parsePubKeyHex(h string) (*btcec.PublicKey, error) {
+	b, err := hex.DecodeString(h)
+	if err != nil {
+		return nil, err
+	}
+	return btcec.ParsePubKey(b)
 }
 
 // AllProofsUnspent checks if all proofs in a token are unspent.
