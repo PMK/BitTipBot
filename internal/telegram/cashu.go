@@ -173,7 +173,28 @@ func (bot *TipBot) requestCashuMint(ctx intercept.Context, amount int64, memo st
 	}
 	// The confirmation lives in the chat the command came from; only the
 	// requester can press its buttons.
-	bot.trySendMessage(m.Chat, confirmText, bot.makeCashuMintConfirmKeyboard(req.ID))
+	confirmMsg := bot.trySendMessage(m.Chat, confirmText, bot.makeCashuMintConfirmKeyboard(req.ID))
+	if public {
+		// Keep group chats tidy: drop the command message right away, and
+		// self-cancel an unanswered confirmation after 5 minutes. The timer must
+		// re-check state: on Confirm this same message is edited into the live
+		// Collect share and must NOT be deleted.
+		NewMessage(m, WithDuration(0, bot))
+		if confirmMsg != nil {
+			reqID := req.ID
+			time.AfterFunc(5*time.Minute, func() {
+				check := &CashuMintRequest{Base: storage.New(storage.ID(reqID))}
+				fn, err := check.Get(check, bot.Bunt)
+				if err != nil {
+					return
+				}
+				if r := fn.(*CashuMintRequest); r.Active {
+					_ = r.Inactivate(r, bot.Bunt)
+					bot.tryDeleteMessage(confirmMsg)
+				}
+			})
+		}
+	}
 	return ctx, nil
 }
 
@@ -259,6 +280,7 @@ func (bot *TipBot) cancelCashuMintHandler(ctx intercept.Context) (intercept.Cont
 	}
 	_ = req.Inactivate(req, bot.Bunt)
 	bot.tryEditMessage(c.Message, Translate(ctx, "cashuSendCancelledMessage"), &tb.ReplyMarkup{})
+	NewMessage(c.Message, WithDuration(10*time.Minute, bot))
 	return ctx, nil
 }
 

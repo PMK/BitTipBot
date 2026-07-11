@@ -222,6 +222,7 @@ func (bot *TipBot) acceptInlineCashuHandler(ctx intercept.Context) (intercept.Co
 		inlineCashu.Active = false
 		_ = inlineCashu.Set(inlineCashu, bot.Bunt)
 		bot.tryEditMessage(c.Message, "🥜 This share was closed — the creator's sats are safe in their wallet.", &tb.ReplyMarkup{})
+		NewMessage(c.Message, WithDuration(10*time.Minute, bot))
 	}
 
 	record := newCashuToken(from.Telegram.ID, from.Telegram.Username, amount, inlineCashu.Memo, quote.Quote)
@@ -292,9 +293,10 @@ func (bot *TipBot) acceptInlineCashuHandler(ctx intercept.Context) (intercept.Co
 		log.Errorf("[cashu claim] Failed to update bunt: %s", err.Error())
 	}
 
-	// Update inline message
+	// Update inline message; the resolved state cleans itself up in groups.
 	claimedMessage := fmt.Sprintf(Translate(ctx, "cashuSendClaimedMessage"), totalAmount, GetUserStrMd(to.Telegram))
 	bot.tryEditMessage(c.Message, claimedMessage, &tb.ReplyMarkup{})
+	NewMessage(c.Message, WithDuration(10*time.Minute, bot))
 
 	// Notify the sender
 	bot.trySendMessage(from.Telegram, fmt.Sprintf("🥜 Your %d sat cashu token was claimed by %s.", totalAmount, GetUserStr(to.Telegram)))
@@ -339,6 +341,7 @@ func (bot *TipBot) cancelInlineCashuHandler(ctx intercept.Context) (intercept.Co
 	inlineCashu.Set(inlineCashu, bot.Bunt)
 
 	bot.tryEditMessage(c.Message, Translate(ctx, "cashuSendCancelledMessage"), &tb.ReplyMarkup{})
+	NewMessage(c.Message, WithDuration(10*time.Minute, bot))
 	log.Infof("[cashu cancel] %s cancelled cashu token %s", GetUserStr(user.Telegram), inlineCashu.ID)
 	return ctx, nil
 }
