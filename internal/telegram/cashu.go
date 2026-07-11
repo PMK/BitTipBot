@@ -522,22 +522,9 @@ func (bot *TipBot) executeCashuMint(ctx intercept.Context, user *lnbits.User, se
 	// 1024-char photo caption limit, and a standalone message is easier to copy.
 	caption := fmt.Sprintf(Translate(ctx, "cashuMintSuccessMessage"), amount)
 
-	// Step 5: Generate QR code
-	qr, err := qrcode.Encode(tokenStr, qrcode.Low, cashuQrSize(tokenStr))
-	if err != nil {
-		log.Errorf("[cashu mint] QR code generation failed: %s", err.Error())
-		// Still send the token string even if QR fails
-		bot.tryEditMessage(statusMsg, caption)
-		bot.trySendMessage(sender, "`"+tokenStr+"`")
-		return ctx, nil
-	}
-
-	// Delete status message and send QR + token
+	// Step 5: replace the status message with QR + token
 	bot.tryDeleteMessage(statusMsg)
-	bot.trySendMessage(sender, &tb.Photo{
-		File:    tb.FromReader(bytes.NewReader(qr)),
-		Caption: caption,
-	})
+	bot.sendCashuQr(sender, tokenStr, caption)
 	bot.trySendMessage(sender, "`"+tokenStr+"`")
 
 	log.Infof("[cashu mint] %s minted %d sat cashu token", GetUserStr(sender), amount)
@@ -753,13 +740,7 @@ func (bot *TipBot) cashuListHandler(ctx intercept.Context) (intercept.Context, e
 	bot.trySendMessage(m.Sender, sb.String())
 	for _, c := range unclaimed {
 		// QR first (scannable by any cashu wallet), token text after (copyable).
-		// QR encoding fails for very large tokens (capacity ~3KB) — text still goes out.
-		if qr, err := qrcode.Encode(c.Token, qrcode.Low, cashuQrSize(c.Token)); err == nil {
-			bot.trySendMessage(m.Sender, &tb.Photo{
-				File:    tb.FromReader(bytes.NewReader(qr)),
-				Caption: fmt.Sprintf("🥜 %d sat", c.Amount),
-			})
-		}
+		bot.sendCashuQr(m.Sender, c.Token, fmt.Sprintf("🥜 %d sat", c.Amount))
 		bot.trySendMessage(m.Sender, fmt.Sprintf("🥜 *%d sat*:\n`%s`", c.Amount, c.Token))
 	}
 	return ctx, nil
@@ -837,6 +818,32 @@ func cashuQrSize(token string) int {
 	default:
 		return 1792
 	}
+}
+
+// sendCashuQr sends a token QR. Small tokens go as a photo (inline preview).
+// Big tokens go as a PNG document: Telegram recompresses photos on send
+// (downscale + JPEG), which measurably destroys dense QRs, so only a document
+// round-trips scannable.
+func (bot *TipBot) sendCashuQr(dest tb.Recipient, tokenStr string, caption string) {
+	size := cashuQrSize(tokenStr)
+	qr, err := qrcode.Encode(tokenStr, qrcode.Low, size)
+	if err != nil {
+		log.Errorf("[cashu] QR code generation failed: %s", err.Error())
+		return
+	}
+	if size <= 512 {
+		bot.trySendMessage(dest, &tb.Photo{
+			File:    tb.FromReader(bytes.NewReader(qr)),
+			Caption: caption,
+		})
+		return
+	}
+	bot.trySendMessage(dest, &tb.Document{
+		File:     tb.FromReader(bytes.NewReader(qr)),
+		FileName: "cashu-token.png",
+		MIME:     "image/png",
+		Caption:  caption,
+	})
 }
 
 // sameMintURL compares two mint URLs ignoring trailing slashes and case.
