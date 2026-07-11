@@ -469,14 +469,16 @@ func (bot *TipBot) cashuRecoverHandler(ctx intercept.Context) (intercept.Context
 		return ctx, err
 	}
 
-	recovered := 0
+	recovered, stillPending := 0, 0
 	for _, c := range tokens {
 		if c.State != cashuStateMinting {
 			continue
 		}
 		q, err := bot.CashuClient.CheckMintQuote(c.QuoteId)
 		if err != nil {
+			// Never report a pending record as "nothing": tell the user it exists.
 			log.Errorf("[cashu recover] check quote %s: %s", c.QuoteId, err.Error())
+			stillPending++
 			continue
 		}
 		if q.State == "ISSUED" {
@@ -486,12 +488,17 @@ func (bot *TipBot) cashuRecoverHandler(ctx intercept.Context) (intercept.Context
 			_ = bot.setCashuToken(c)
 			continue
 		}
-		if q.State != "PAID" {
+		if !q.IsPaid() {
+			// Legacy mints answer with paid=false while settling; newer ones with
+			// state=UNPAID. Either way: not claimable yet, but still the user's.
+			log.Warnf("[cashu recover] quote %s not paid yet (state=%q paid=%v)", c.QuoteId, q.State, q.Paid)
+			stillPending++
 			continue
 		}
 		tokenStr, err := bot.CashuClient.MintTokens(c.QuoteId, c.Amount, c.Memo)
 		if err != nil {
 			log.Errorf("[cashu recover] mint from quote %s failed: %s", c.QuoteId, err.Error())
+			stillPending++
 			continue
 		}
 		c.Token = tokenStr
@@ -501,10 +508,13 @@ func (bot *TipBot) cashuRecoverHandler(ctx intercept.Context) (intercept.Context
 		recovered++
 	}
 
-	if recovered == 0 {
-		bot.trySendMessage(m.Sender, "🥜 Nothing to recover.")
-	} else {
+	switch {
+	case recovered > 0 && stillPending == 0:
 		bot.trySendMessage(m.Sender, fmt.Sprintf("🥜 Recovered %d token(s) to your wallet.", recovered))
+	case stillPending > 0:
+		bot.trySendMessage(m.Sender, fmt.Sprintf("🥜 Recovered %d token(s). %d still pending — the mint hasn't settled or answered yet, try again in a bit. Your sats are not lost.", recovered, stillPending))
+	default:
+		bot.trySendMessage(m.Sender, "🥜 Nothing to recover.")
 	}
 	return ctx, nil
 }

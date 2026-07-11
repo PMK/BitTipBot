@@ -79,8 +79,15 @@ type MintQuoteRequest struct {
 type MintQuoteResponse struct {
 	Quote   string `json:"quote"`
 	Request string `json:"request"` // bolt11 invoice
-	State   string `json:"state"`   // "UNPAID", "PAID", "ISSUED"
+	State   string `json:"state"`   // "UNPAID", "PAID", "ISSUED" (newer NUT-04)
+	Paid    bool   `json:"paid"`    // legacy NUT-04 field, pre-"state" mints
 	Expiry  int64  `json:"expiry"`
+}
+
+// IsPaid reports whether the quote's invoice was paid, handling both the
+// current "state" field and the legacy "paid" bool.
+func (q *MintQuoteResponse) IsPaid() bool {
+	return q.State == "PAID" || (q.State == "" && q.Paid)
 }
 
 // MintRequest is sent to POST /v1/mint/bolt11 after paying the invoice (NUT-04 step 2).
