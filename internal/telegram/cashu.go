@@ -79,6 +79,7 @@ var (
 	cashuMintConfirmationMenu = &tb.ReplyMarkup{ResizeKeyboard: true}
 	btnConfirmCashuMint       = cashuMintConfirmationMenu.Data("✅ Mint", "confirm_cashu_mint")
 	btnCancelCashuMint        = cashuMintConfirmationMenu.Data("🚫 Cancel", "cancel_cashu_mint")
+	btnCashuTipAmount         = cashuMintConfirmationMenu.Data("", "cashu_tip_amount")
 )
 
 // CashuMintRequest is a pending /cashu mint awaiting user confirmation.
@@ -148,11 +149,95 @@ func (bot *TipBot) cashuTipHandler(ctx intercept.Context) (intercept.Context, er
 		}
 	}
 
-	// No amount given: tidy the command away and ask for the amount in DM.
-	// The share chat is carried in the state data ID.
+	// No amount given: show an amount picker right in the chat. One tap is
+	// both amount entry and confirmation; only the requester's taps count.
+	// (Telegram has no requester-only visible group messages, so buttons beat
+	// a public "enter amount" prompt or a DM detour.)
 	NewMessage(m, WithDuration(0, bot))
-	_, err := bot.askForAmount(ctx, strconv.FormatInt(m.Chat.ID, 10), "CreateCashuTipState", 0, 0, m.Text)
-	return ctx, err
+	req := &CashuMintRequest{
+		Base:       storage.New(storage.ID(fmt.Sprintf("cashu-mint-req:%d:%s", m.Sender.ID, RandStringRunes(8)))),
+		TelegramID: m.Sender.ID,
+		Public:     !m.Private(),
+	}
+	if err := req.Set(req, bot.Bunt); err != nil {
+		return ctx, err
+	}
+
+	menu := &tb.ReplyMarkup{ResizeKeyboard: true}
+	var row []tb.Btn
+	for _, amt := range []int64{21, 100, 210, 500, 1000} {
+		row = append(row, menu.Data(fmt.Sprintf("%d", amt), "cashu_tip_amount", req.ID, strconv.FormatInt(amt, 10)))
+	}
+	cancelRow := menu.Row(menu.Data("🚫 Cancel", "cancel_cashu_mint", req.ID))
+	menu.Inline(menu.Row(row...), cancelRow)
+
+	pickerMsg := bot.trySendMessage(m.Chat, fmt.Sprintf("🥜 %s, pick a tip amount (sat):", GetUserStrMd(m.Sender)), menu)
+	if pickerMsg != nil {
+		// Unanswered picker self-cancels; re-check state first, the message is
+		// edited into the live share once an amount is picked.
+		reqID := req.ID
+		time.AfterFunc(5*time.Minute, func() {
+			check := &CashuMintRequest{Base: storage.New(storage.ID(reqID))}
+			fn, err := check.Get(check, bot.Bunt)
+			if err != nil {
+				return
+			}
+			if r := fn.(*CashuMintRequest); r.Active {
+				_ = r.Inactivate(r, bot.Bunt)
+				bot.tryDeleteMessage(pickerMsg)
+			}
+		})
+	}
+	return ctx, nil
+}
+
+// cashuTipAmountHandler runs when the requester taps an amount on the picker.
+// The tap is the confirmation: the picker message becomes the Collect share.
+func (bot *TipBot) cashuTipAmountHandler(ctx intercept.Context) (intercept.Context, error) {
+	c := ctx.Callback()
+	user := LoadUser(ctx)
+	if user.Wallet.ID == "" {
+		return ctx, errors.Create(errors.UserNoWalletError)
+	}
+
+	// c.Data = "<reqID>|<amount>"
+	parts := strings.Split(c.Data, "|")
+	if len(parts) != 2 {
+		return ctx, errors.Create(errors.InvalidSyntaxError)
+	}
+	amount, err := strconv.ParseInt(parts[1], 10, 64)
+	if err != nil || amount < 1 {
+		return ctx, errors.Create(errors.InvalidAmountError)
+	}
+
+	req := &CashuMintRequest{Base: storage.New(storage.ID(parts[0]))}
+	fn, err := req.Get(req, bot.Bunt)
+	if err != nil {
+		bot.tryEditMessage(c.Message, "🥜 This tip request expired. Send the command again.", &tb.ReplyMarkup{})
+		return ctx, err
+	}
+	req = fn.(*CashuMintRequest)
+	if req.TelegramID != user.Telegram.ID {
+		ctx.Context = context.WithValue(ctx, "callback_response", "🥜 Only the requester can pick the amount.")
+		return ctx, errors.Create(errors.UnknownError)
+	}
+	if !req.Active {
+		ctx.Context = context.WithValue(ctx, "callback_response", "🥜 Already being processed.")
+		return ctx, errors.Create(errors.NotActiveError)
+	}
+
+	// Balance and pending-cap checks, deferred to tap time.
+	if balance, err := bot.GetUserBalanceCached(user); err == nil && balance < amount {
+		ctx.Context = context.WithValue(ctx, "callback_response", Translate(ctx, "balanceTooLowMessage"))
+		return ctx, errors.Create(errors.BalanceToLowError)
+	}
+	if pending, err := bot.countPendingCashuTokens(user.Telegram.ID); err == nil && pending >= maxPendingCashuTokens {
+		ctx.Context = context.WithValue(ctx, "callback_response", fmt.Sprintf("🥜 You have %d pending cashu tokens (max %d).", pending, maxPendingCashuTokens))
+		return ctx, errors.Create(errors.InvalidSyntaxError)
+	}
+	_ = req.Inactivate(req, bot.Bunt)
+
+	return bot.postCashuShare(ctx, user, c.Message, amount, req.Memo)
 }
 
 // requestCashuMint validates a mint/share request and asks for confirmation.
@@ -268,32 +353,37 @@ func (bot *TipBot) confirmCashuMintHandler(ctx intercept.Context) (intercept.Con
 	}
 
 	if req.Public {
-		// Group share: no minting yet. Post a Collect message backed by the same
-		// InlineCashu record the inline flow uses — the sender's wallet is only
-		// charged when someone actually collects (acceptInlineCashuHandler).
-		id := fmt.Sprintf("cashu:%s:%d", RandStringRunes(10), req.Amount)
-		shareMsg := fmt.Sprintf(Translate(ctx, "cashuSendMessage"), GetUserStrMd(user.Telegram), req.Amount)
-		if len(req.Memo) > 0 {
-			shareMsg += fmt.Sprintf("\n_Memo: %s_", str.MarkdownEscape(req.Memo))
-		}
-		ic := &InlineCashu{
-			Base:         storage.New(storage.ID(id)),
-			Message:      shareMsg,
-			Amount:       req.Amount,
-			From:         user,
-			Memo:         req.Memo,
-			LanguageCode: "en",
-		}
-		if err := ic.Set(ic, bot.Bunt); err != nil {
-			log.Errorf("[cashu share] could not persist share: %s", err.Error())
-			return ctx, err
-		}
-		bot.tryEditMessage(c.Message, shareMsg, bot.makeCashuKeyboard(ctx, id))
-		log.Infof("[cashu share] %s shared %d sat collectable in chat %d", GetUserStr(c.Sender), req.Amount, c.Message.Chat.ID)
-		return ctx, nil
+		return bot.postCashuShare(ctx, user, c.Message, req.Amount, req.Memo)
 	}
 
 	return bot.executeCashuMint(ctx, user, c.Sender, c.Message, req.Amount, req.Memo)
+}
+
+// postCashuShare turns msg into a collectable share message. No minting yet —
+// the sender's wallet is only charged when someone actually collects
+// (acceptInlineCashuHandler), backed by the same InlineCashu record the
+// inline flow uses.
+func (bot *TipBot) postCashuShare(ctx intercept.Context, user *lnbits.User, msg *tb.Message, amount int64, memo string) (intercept.Context, error) {
+	id := fmt.Sprintf("cashu:%s:%d", RandStringRunes(10), amount)
+	shareMsg := fmt.Sprintf(Translate(ctx, "cashuSendMessage"), GetUserStrMd(user.Telegram), amount)
+	if len(memo) > 0 {
+		shareMsg += fmt.Sprintf("\n_Memo: %s_", str.MarkdownEscape(memo))
+	}
+	ic := &InlineCashu{
+		Base:         storage.New(storage.ID(id)),
+		Message:      shareMsg,
+		Amount:       amount,
+		From:         user,
+		Memo:         memo,
+		LanguageCode: "en",
+	}
+	if err := ic.Set(ic, bot.Bunt); err != nil {
+		log.Errorf("[cashu share] could not persist share: %s", err.Error())
+		return ctx, err
+	}
+	bot.tryEditMessage(msg, shareMsg, bot.makeCashuKeyboard(ctx, id))
+	log.Infof("[cashu share] %s shared %d sat collectable in chat %d", GetUserStr(user.Telegram), amount, msg.Chat.ID)
+	return ctx, nil
 }
 
 // cancelCashuMintHandler runs when the user taps Cancel on a pending mint.
