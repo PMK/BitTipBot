@@ -94,6 +94,11 @@ func (bot *TipBot) photoHandler(ctx intercept.Context) (intercept.Context, error
 // are unreadable as photos decode fine as files.
 func (bot *TipBot) documentHandler(ctx intercept.Context) (intercept.Context, error) {
 	m := ctx.Message()
+	if m.Document != nil {
+		log.Infof("[documentHandler] received document from %s: mime=%q filename=%q size=%d", GetUserStr(m.Sender), m.Document.MIME, m.Document.FileName, m.Document.FileSize)
+	} else {
+		log.Infof("[documentHandler] fired without document from %s", GetUserStr(m.Sender))
+	}
 	if m.Chat.Type != tb.ChatPrivate {
 		return ctx, errors.Create(errors.NoPrivateChatError)
 	}
