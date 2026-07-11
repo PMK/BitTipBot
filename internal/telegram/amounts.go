@@ -235,6 +235,20 @@ func (bot *TipBot) enterAmountHandler(ctx intercept.Context) (intercept.Context,
 		ctx.Message().Text = fmt.Sprintf("/donate %d", amount)
 		SetUserState(user, bot, lnbits.UserHasEnteredAmount, "")
 		return bot.donationHandler(ctx)
+	case "CreateCashuTipState":
+		// ID carries the chat the /cashutip came from. Negative = group chat
+		// (yes, we remember those exist), positive = the user's own DM.
+		chatID, err := strconv.ParseInt(EnterAmountStateData.ID, 10, 64)
+		if err != nil {
+			ResetUserState(user, bot)
+			return ctx, errors.Create(errors.InvalidSyntaxError)
+		}
+		SetUserState(user, bot, lnbits.UserHasEnteredAmount, "")
+		memo := ""
+		if splits := strings.SplitAfterN(EnterAmountStateData.OiringalCommand, " ", 2); len(splits) > 1 {
+			memo = strings.TrimSpace(splits[1])
+		}
+		return bot.requestCashuMint(ctx, int64(amount), memo, chatID < 0, &tb.Chat{ID: chatID})
 	case "CreateSendState":
 		splits := strings.SplitAfterN(EnterAmountStateData.OiringalCommand, " ", 2)
 		if len(splits) > 1 {

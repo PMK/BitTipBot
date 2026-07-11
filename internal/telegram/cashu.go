@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -46,7 +47,7 @@ func (bot *TipBot) cashuHandler(ctx intercept.Context) (intercept.Context, error
 		if len(args) > 2 {
 			memo = strings.Join(args[2:], " ")
 		}
-		return bot.requestCashuMint(ctx, amount, memo, !m.Private())
+		return bot.requestCashuMint(ctx, amount, memo, !m.Private(), m.Chat)
 	}
 
 	// Named subcommands are DM-only: receive/list would leak tokens or private
@@ -119,13 +120,46 @@ func (bot *TipBot) cashuMintHandler(ctx intercept.Context) (intercept.Context, e
 		memo = strings.Join(args[3:], " ")
 	}
 
-	return bot.requestCashuMint(ctx, amount, memo, false)
+	return bot.requestCashuMint(ctx, amount, memo, false, m.Chat)
+}
+
+// cashuTipHandler handles /cashutip [amount] [memo] in a group. Without an
+// amount it asks for one in the requester's DM (ForceReply state flow, same as
+// invoices) and then posts the confirmable share back into the group.
+func (bot *TipBot) cashuTipHandler(ctx intercept.Context) (intercept.Context, error) {
+	m := ctx.Message()
+	if !internal.Configuration.Cashu.Enabled {
+		bot.trySendMessage(m.Sender, Translate(ctx, "cashuDisabledMessage"))
+		return ctx, errors.Create(errors.InvalidSyntaxError)
+	}
+	user := LoadUser(ctx)
+	if user.Wallet.ID == "" {
+		return ctx, errors.Create(errors.UserNoWalletError)
+	}
+
+	args := strings.Fields(m.Text)
+	if len(args) > 1 {
+		if amount, err := GetAmount(args[1]); err == nil && amount >= 1 {
+			memo := ""
+			if len(args) > 2 {
+				memo = strings.Join(args[2:], " ")
+			}
+			return bot.requestCashuMint(ctx, amount, memo, !m.Private(), m.Chat)
+		}
+	}
+
+	// No amount given: tidy the command away and ask for the amount in DM.
+	// The share chat is carried in the state data ID.
+	NewMessage(m, WithDuration(0, bot))
+	_, err := bot.askForAmount(ctx, strconv.FormatInt(m.Chat.ID, 10), "CreateCashuTipState", 0, 0, m.Text)
+	return ctx, err
 }
 
 // requestCashuMint validates a mint/share request and asks for confirmation.
 // Money only moves after the user taps Confirm (confirmCashuMintHandler).
-// public = post the resulting token into the originating chat (group drop).
-func (bot *TipBot) requestCashuMint(ctx intercept.Context, amount int64, memo string, public bool) (intercept.Context, error) {
+// public = post the resulting token into chat (group drop); chat is where the
+// confirmation (and later the Collect message) is posted.
+func (bot *TipBot) requestCashuMint(ctx intercept.Context, amount int64, memo string, public bool, chat *tb.Chat) (intercept.Context, error) {
 	m := ctx.Message()
 	user := LoadUser(ctx)
 	if user.Wallet.ID == "" {
@@ -173,7 +207,7 @@ func (bot *TipBot) requestCashuMint(ctx intercept.Context, amount int64, memo st
 	}
 	// The confirmation lives in the chat the command came from; only the
 	// requester can press its buttons.
-	confirmMsg := bot.trySendMessage(m.Chat, confirmText, bot.makeCashuMintConfirmKeyboard(req.ID))
+	confirmMsg := bot.trySendMessage(chat, confirmText, bot.makeCashuMintConfirmKeyboard(req.ID))
 	if public {
 		// Keep group chats tidy: drop the command message right away, and
 		// self-cancel an unanswered confirmation after 5 minutes. The timer must

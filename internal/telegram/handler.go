@@ -406,6 +406,21 @@ func (bot TipBot) getHandler() []InterceptionWrapper {
 		},
 		// cashu ecash
 		{
+			Endpoints: []interface{}{"/cashutip"},
+			Handler:   bot.cashuTipHandler,
+			Interceptor: &Interceptor{
+				Before: []intercept.Func{
+					bot.localizerInterceptor,
+					bot.logMessageInterceptor,
+					bot.requireUserInterceptor,
+					bot.lockInterceptor,
+				},
+				OnDefer: []intercept.Func{
+					bot.unlockInterceptor,
+				},
+			},
+		},
+		{
 			Endpoints: []interface{}{"/claim", "/redeem"},
 			Handler:   bot.cashuClaimAliasHandler,
 			Interceptor: &Interceptor{
