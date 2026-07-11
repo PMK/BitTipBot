@@ -163,7 +163,7 @@ func (bot *TipBot) requestCashuMint(ctx intercept.Context, amount int64, memo st
 
 	var confirmText string
 	if public {
-		confirmText = fmt.Sprintf("🥜 %s wants to share a *%d sat* ecash token in this chat.\nFirst to scan or redeem it gets the sats. Confirm?", GetUserStrMd(m.Sender), amount)
+		confirmText = fmt.Sprintf("🥜 %s wants to share a *%d sat* ecash token in this chat.\nThe first user to hit Collect gets the sats. Confirm?", GetUserStrMd(m.Sender), amount)
 	} else {
 		confirmText = fmt.Sprintf("🥜 Mint a *%d sat* cashu token?\nThis pays %d sat from your wallet to the mint `%s`.", amount, amount, str.MarkdownEscape(bot.CashuClient.MintURL()))
 	}
@@ -209,13 +209,33 @@ func (bot *TipBot) confirmCashuMintHandler(ctx intercept.Context) (intercept.Con
 		return ctx, errors.Create(errors.InvalidSyntaxError)
 	}
 
-	// Public share: token goes into the chat the confirmation lives in.
-	// Private mint: token goes to the requester's DM.
-	var dest tb.Recipient = c.Sender
 	if req.Public {
-		dest = c.Message.Chat
+		// Group share: no minting yet. Post a Collect message backed by the same
+		// InlineCashu record the inline flow uses — the sender's wallet is only
+		// charged when someone actually collects (acceptInlineCashuHandler).
+		id := fmt.Sprintf("cashu:%s:%d", RandStringRunes(10), req.Amount)
+		shareMsg := fmt.Sprintf(Translate(ctx, "cashuSendMessage"), GetUserStrMd(user.Telegram), req.Amount)
+		if len(req.Memo) > 0 {
+			shareMsg += fmt.Sprintf("\n_Memo: %s_", str.MarkdownEscape(req.Memo))
+		}
+		ic := &InlineCashu{
+			Base:         storage.New(storage.ID(id)),
+			Message:      shareMsg,
+			Amount:       req.Amount,
+			From:         user,
+			Memo:         req.Memo,
+			LanguageCode: "en",
+		}
+		if err := ic.Set(ic, bot.Bunt); err != nil {
+			log.Errorf("[cashu share] could not persist share: %s", err.Error())
+			return ctx, err
+		}
+		bot.tryEditMessage(c.Message, shareMsg, bot.makeCashuKeyboard(ctx, id))
+		log.Infof("[cashu share] %s shared %d sat collectable in chat %d", GetUserStr(c.Sender), req.Amount, c.Message.Chat.ID)
+		return ctx, nil
 	}
-	return bot.executeCashuMint(ctx, user, c.Sender, c.Message, dest, req.Amount, req.Memo, req.Public)
+
+	return bot.executeCashuMint(ctx, user, c.Sender, c.Message, req.Amount, req.Memo)
 }
 
 // cancelCashuMintHandler runs when the user taps Cancel on a pending mint.
@@ -239,9 +259,8 @@ func (bot *TipBot) cancelCashuMintHandler(ctx intercept.Context) (intercept.Cont
 }
 
 // executeCashuMint performs the actual quote -> pay -> mint flow after the
-// user confirmed. statusMsg (the confirmation message) is edited in place.
-// dest is where the token lands: the requester (DM mint) or a chat (group share).
-func (bot *TipBot) executeCashuMint(ctx intercept.Context, user *lnbits.User, sender *tb.User, statusMsg *tb.Message, dest tb.Recipient, amount int64, memo string, public bool) (intercept.Context, error) {
+// user confirmed a private mint. statusMsg is edited in place.
+func (bot *TipBot) executeCashuMint(ctx intercept.Context, user *lnbits.User, sender *tb.User, statusMsg *tb.Message, amount int64, memo string) (intercept.Context, error) {
 	m := &tb.Message{Sender: sender} // ownership of the durable record
 	bot.tryEditMessage(statusMsg, fmt.Sprintf(Translate(ctx, "cashuMintMessage"), amount))
 
@@ -303,15 +322,9 @@ func (bot *TipBot) executeCashuMint(ctx intercept.Context, user *lnbits.User, se
 	record.State = cashuStateUnclaimed
 	_ = bot.setCashuToken(record)
 
-	// Build the announcement. The token string goes as its OWN message: it can
-	// exceed Telegram's 1024-char photo caption limit, and a standalone
-	// monospace message is easier to copy anyway.
-	var caption string
-	if public {
-		caption = fmt.Sprintf("🥜 %s is sharing *%d sat* as ecash — scan the QR with any cashu wallet or redeem the token below. First come, first served!", GetUserStrMd(sender), amount)
-	} else {
-		caption = fmt.Sprintf(Translate(ctx, "cashuMintSuccessMessage"), amount)
-	}
+	// The token string goes as its OWN message: it can exceed Telegram's
+	// 1024-char photo caption limit, and a standalone message is easier to copy.
+	caption := fmt.Sprintf(Translate(ctx, "cashuMintSuccessMessage"), amount)
 
 	// Step 5: Generate QR code
 	qr, err := qrcode.Encode(tokenStr, qrcode.Medium, 512)
@@ -319,19 +332,19 @@ func (bot *TipBot) executeCashuMint(ctx intercept.Context, user *lnbits.User, se
 		log.Errorf("[cashu mint] QR code generation failed: %s", err.Error())
 		// Still send the token string even if QR fails
 		bot.tryEditMessage(statusMsg, caption)
-		bot.trySendMessage(dest, "`"+tokenStr+"`")
+		bot.trySendMessage(sender, "`"+tokenStr+"`")
 		return ctx, nil
 	}
 
 	// Delete status message and send QR + token
 	bot.tryDeleteMessage(statusMsg)
-	bot.trySendMessage(dest, &tb.Photo{
+	bot.trySendMessage(sender, &tb.Photo{
 		File:    tb.FromReader(bytes.NewReader(qr)),
 		Caption: caption,
 	})
-	bot.trySendMessage(dest, "`"+tokenStr+"`")
+	bot.trySendMessage(sender, "`"+tokenStr+"`")
 
-	log.Infof("[cashu mint] %s minted %d sat cashu token (public=%v)", GetUserStr(sender), amount, public)
+	log.Infof("[cashu mint] %s minted %d sat cashu token", GetUserStr(sender), amount)
 	return ctx, nil
 }
 

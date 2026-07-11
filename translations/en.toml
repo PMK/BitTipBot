@@ -415,7 +415,7 @@ generateDalleGeneratingMessage  = """Your images are being generated. Please wai
 cashuCommandStr = """cashu"""
 cashuHelpText = """🥜 *Cashu ecash tokens*
 
-`/cashu <amount> [memo]` — Mint an ecash token (in a group: share it in the chat, first come first served)
+`/cashu <amount> [memo]` — Mint an ecash token (in a group: share it with a Collect button, first come first served)
 `/cashu mint <amount> [memo]` — Create an ecash token
 `/cashu receive <token>` — Redeem a cashu token to your wallet
 `/cashu send <amount> [memo]` — Create a cashu token to share
@@ -437,7 +437,7 @@ cashuSendMessage = """🥜 *%s* is sharing *%d sat* as ecash."""
 cashuSendClaimedMessage = """🥜 *%d sat* claimed by %s."""
 cashuSendCancelledMessage = """🥜 Cashu token cancelled."""
 cashuAlreadyClaimedMessage = """This token has already been claimed."""
-cashuClaimButtonMessage = """🥜 Claim"""
+cashuClaimButtonMessage = """🥜 Collect"""
 inlineQueryCashuTitle = """🥜 Share ecash token"""
 inlineQueryCashuDescription = """Usage: @%s cashu <amount> [memo]"""
 inlineResultCashuTitle = """🥜 Share %d sat ecash token"""
