@@ -26,9 +26,14 @@ import (
 func TryRecognizeQrCode(img image.Image) (*gozxing.Result, error) {
 	// check for qr code
 	bmp, _ := gozxing.NewBinaryBitmapFromImage(img)
-	// decode image
+	// decode image; TRY_HARDER spends more CPU but survives the JPEG
+	// compression Telegram applies, which dense QRs (large cashu tokens)
+	// otherwise don't.
 	qrReader := qrcode.NewQRCodeReader()
-	result, err := qrReader.Decode(bmp, nil)
+	hints := map[gozxing.DecodeHintType]interface{}{
+		gozxing.DecodeHintType_TRY_HARDER: true,
+	}
+	result, err := qrReader.Decode(bmp, hints)
 	if err != nil {
 		return nil, err
 	}
