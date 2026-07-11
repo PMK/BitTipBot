@@ -497,8 +497,12 @@ func (bot *TipBot) cashuListHandler(ctx intercept.Context) (intercept.Context, e
 		return ctx, err
 	}
 
+	// Summary first, then each unclaimed token as its OWN message: several
+	// full token strings in one message blow Telegram's 4096-char limit and
+	// the send fails silently, making /cashu list appear dead.
 	var sb strings.Builder
 	sb.WriteString("🥜 *Your cashu tokens*\n")
+	var unclaimed []*CashuToken
 	shown := 0
 	for _, c := range tokens {
 		bot.refreshCashuTokenState(c) // may flip unclaimed -> spent
@@ -507,7 +511,8 @@ func (bot *TipBot) cashuListHandler(ctx intercept.Context) (intercept.Context, e
 			sb.WriteString(fmt.Sprintf("\n⏳ *%d sat* — paid but not minted. Run /cashu recover.", c.Amount))
 			shown++
 		case cashuStateUnclaimed:
-			sb.WriteString(fmt.Sprintf("\n🥜 *%d sat* unclaimed:\n`%s`\n", c.Amount, c.Token))
+			sb.WriteString(fmt.Sprintf("\n🥜 *%d sat* — unclaimed (token below)", c.Amount))
+			unclaimed = append(unclaimed, c)
 			shown++
 		case cashuStateSpent:
 			// Greyed out, and hidden entirely once it's been claimed a while.
@@ -523,6 +528,9 @@ func (bot *TipBot) cashuListHandler(ctx intercept.Context) (intercept.Context, e
 		return ctx, nil
 	}
 	bot.trySendMessage(m.Sender, sb.String())
+	for _, c := range unclaimed {
+		bot.trySendMessage(m.Sender, fmt.Sprintf("🥜 *%d sat*:\n`%s`", c.Amount, c.Token))
+	}
 	return ctx, nil
 }
 
