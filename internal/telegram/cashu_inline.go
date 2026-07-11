@@ -134,6 +134,7 @@ func (bot *TipBot) handleInlineCashuQuery(ctx intercept.Context) (intercept.Cont
 		Description: TranslateUser(ctx, "inlineResultCashuDescription"),
 		ThumbURL:    queryImage,
 	}
+	result.SetParseMode(tb.ModeMarkdown)
 	result.ReplyMarkup = &tb.ReplyMarkup{InlineKeyboard: bot.makeCashuKeyboard(ctx, inlineCashu.ID).InlineKeyboard}
 	results[0] = result
 	results[0].SetResultID(inlineCashu.ID)
