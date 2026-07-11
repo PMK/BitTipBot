@@ -523,7 +523,7 @@ func (bot *TipBot) executeCashuMint(ctx intercept.Context, user *lnbits.User, se
 	caption := fmt.Sprintf(Translate(ctx, "cashuMintSuccessMessage"), amount)
 
 	// Step 5: Generate QR code
-	qr, err := qrcode.Encode(tokenStr, qrcode.Low, 512)
+	qr, err := qrcode.Encode(tokenStr, qrcode.Low, cashuQrSize(tokenStr))
 	if err != nil {
 		log.Errorf("[cashu mint] QR code generation failed: %s", err.Error())
 		// Still send the token string even if QR fails
@@ -754,7 +754,7 @@ func (bot *TipBot) cashuListHandler(ctx intercept.Context) (intercept.Context, e
 	for _, c := range unclaimed {
 		// QR first (scannable by any cashu wallet), token text after (copyable).
 		// QR encoding fails for very large tokens (capacity ~3KB) — text still goes out.
-		if qr, err := qrcode.Encode(c.Token, qrcode.Low, 512); err == nil {
+		if qr, err := qrcode.Encode(c.Token, qrcode.Low, cashuQrSize(c.Token)); err == nil {
 			bot.trySendMessage(m.Sender, &tb.Photo{
 				File:    tb.FromReader(bytes.NewReader(qr)),
 				Caption: fmt.Sprintf("🥜 %d sat", c.Amount),
@@ -823,6 +823,20 @@ func (bot *TipBot) cashuRecoverHandler(ctx intercept.Context) (intercept.Context
 		bot.trySendMessage(m.Sender, "🥜 Nothing to recover.")
 	}
 	return ctx, nil
+}
+
+// cashuQrSize returns a pixel size that keeps QR modules readable. Measured:
+// gozxing needs >=1536px for a ~2.6KB token (~171 modules) even on a clean
+// PNG; 512px is only safe for small tokens.
+func cashuQrSize(token string) int {
+	switch l := len(token); {
+	case l < 800:
+		return 512
+	case l < 1600:
+		return 1024
+	default:
+		return 1792
+	}
 }
 
 // sameMintURL compares two mint URLs ignoring trailing slashes and case.
