@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"image"
 	"image/jpeg"
+	_ "image/png" // registers the PNG decoder for image.Decode (QR files)
 	"strings"
 
 	"github.com/LightningTipBot/LightningTipBot/internal"
@@ -85,6 +86,41 @@ func (bot *TipBot) photoHandler(ctx intercept.Context) (intercept.Context, error
 		log.Errorf("[photoHandler] image.Decode error: %v\n", err.Error())
 		return ctx, err
 	}
+	return bot.routeQrImage(ctx, img)
+}
+
+// documentHandler handles image files sent as documents. Documents skip
+// Telegram's photo compression, so dense QR codes (large cashu tokens) that
+// are unreadable as photos decode fine as files.
+func (bot *TipBot) documentHandler(ctx intercept.Context) (intercept.Context, error) {
+	m := ctx.Message()
+	if m.Chat.Type != tb.ChatPrivate {
+		return ctx, errors.Create(errors.NoPrivateChatError)
+	}
+	if m.Document == nil || !strings.HasPrefix(m.Document.MIME, "image/") {
+		// not an image file — none of our business
+		return ctx, nil
+	}
+
+	reader, err := bot.Telegram.File(m.Document.MediaFile())
+	if err != nil {
+		log.Errorf("[documentHandler] getfile error: %v\n", err.Error())
+		return ctx, err
+	}
+	// image.Decode picks the right decoder (png/jpeg) from the data
+	img, _, err := image.Decode(reader)
+	if err != nil {
+		log.Errorf("[documentHandler] image.Decode error: %v\n", err.Error())
+		return ctx, err
+	}
+	return bot.routeQrImage(ctx, img)
+}
+
+// routeQrImage decodes a QR from img and dispatches its payload (invoice,
+// LNURL, or cashu token).
+func (bot *TipBot) routeQrImage(ctx intercept.Context, img image.Image) (intercept.Context, error) {
+	m := ctx.Message()
+	user := LoadUser(ctx)
 	data, err := TryRecognizeQrCode(img)
 	if err != nil {
 		log.Errorf("[photoHandler] tryRecognizeQrCodes error: %v\n", err.Error())

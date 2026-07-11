@@ -660,6 +660,23 @@ func (bot TipBot) getHandler() []InterceptionWrapper {
 			},
 		},
 		{
+			Endpoints: []interface{}{tb.OnDocument},
+			Handler:   bot.documentHandler,
+			Interceptor: &Interceptor{
+
+				Before: []intercept.Func{
+					bot.requirePrivateChatInterceptor,
+					bot.localizerInterceptor,
+					bot.logMessageInterceptor,
+					bot.requireUserInterceptor,
+					bot.lockInterceptor,
+				},
+				OnDefer: []intercept.Func{
+					bot.unlockInterceptor,
+				},
+			},
+		},
+		{
 			Endpoints: []interface{}{tb.OnPhoto},
 			Handler:   bot.photoHandler,
 			Interceptor: &Interceptor{
