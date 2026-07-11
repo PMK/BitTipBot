@@ -92,6 +92,12 @@ func (bot *TipBot) cashuMintHandler(ctx intercept.Context) (intercept.Context, e
 		return ctx, errors.New(errors.BalanceToLowError, fmt.Errorf("balance too low for cashu mint"))
 	}
 
+	// DoS guard: cap pending (minting/unclaimed) tokens per user.
+	if pending, err := bot.countPendingCashuTokens(m.Sender.ID); err == nil && pending >= maxPendingCashuTokens {
+		bot.trySendMessage(m.Sender, fmt.Sprintf("🥜 You have %d pending cashu tokens (max %d). Redeem some with /cashu list or finish them with /cashu recover first.", pending, maxPendingCashuTokens))
+		return ctx, errors.Create(errors.InvalidSyntaxError)
+	}
+
 	// Notify user we're working on it
 	statusMsg := bot.trySendMessage(m.Sender, fmt.Sprintf(Translate(ctx, "cashuMintMessage"), amount))
 

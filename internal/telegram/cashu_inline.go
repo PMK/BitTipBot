@@ -95,6 +95,13 @@ func (bot *TipBot) handleInlineCashuQuery(ctx intercept.Context) (intercept.Cont
 		return ctx, nil
 	}
 
+	// DoS guard: same pending cap as /cashu mint, so a capped user can't keep
+	// creating claimable offers (each failed delivery would bank another token).
+	if pending, err := bot.countPendingCashuTokens(query.Sender.ID); err == nil && pending >= maxPendingCashuTokens {
+		bot.inlineQueryReplyWithError(ctx, "Too many pending cashu tokens", fmt.Sprintf("You have %d pending tokens (max %d). Redeem or recover them first.", pending, maxPendingCashuTokens))
+		return ctx, errors.Create(errors.InvalidSyntaxError)
+	}
+
 	// ponytail: do NOT mint here — inline queries fire on every keystroke, so
 	// minting here spends money per character typed. The token is minted from
 	// the sender's wallet on claim instead (acceptInlineCashuHandler).

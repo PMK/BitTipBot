@@ -16,6 +16,11 @@ const (
 	cashuStateMinting   = "minting"   // user paid the mint invoice; token not yet minted (recoverable via /cashu recover)
 	cashuStateUnclaimed = "unclaimed" // token minted and held in the wallet, not yet redeemed
 	cashuStateSpent     = "spent"     // token has been redeemed/claimed
+
+	// maxPendingCashuTokens caps minting+unclaimed records per user so a user
+	// can't grow the DB and hammer the mint without bound.
+	// ponytail: hard-coded; make configurable if a real user ever hits it.
+	maxPendingCashuTokens = 10
 )
 
 // CashuToken is a durable per-user record of a cashu token the user minted.
@@ -70,6 +75,21 @@ func (bot *TipBot) listCashuTokens(telegramID int64) ([]*CashuToken, error) {
 		})
 	})
 	return tokens, err
+}
+
+// countPendingCashuTokens returns how many minting/unclaimed records a user has.
+func (bot *TipBot) countPendingCashuTokens(telegramID int64) (int, error) {
+	tokens, err := bot.listCashuTokens(telegramID)
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, c := range tokens {
+		if c.State == cashuStateMinting || c.State == cashuStateUnclaimed {
+			n++
+		}
+	}
+	return n, nil
 }
 
 // markCashuTokenSpent flips the caller's stored token matching tokenStr to spent.
