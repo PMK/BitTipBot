@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/LightningTipBot/LightningTipBot/internal"
 	"github.com/LightningTipBot/LightningTipBot/internal/errors"
 	"github.com/LightningTipBot/LightningTipBot/internal/telegram/intercept"
 
@@ -45,6 +46,11 @@ func (bot *TipBot) anyTextHandler(ctx intercept.Context) (intercept.Context, err
 	if lightning.IsLnurl(anyText) {
 		m.Text = "/lnurl " + anyText
 		return bot.lnurlHandler(ctx)
+	}
+	// pasted cashu token: redeem straight to the user's wallet. Uses the
+	// original (case-sensitive) text, not the lowercased copy.
+	if internal.Configuration.Cashu.Enabled && isCashuToken(m.Text) {
+		return bot.redeemCashuToken(ctx, strings.TrimSpace(m.Text), user, m.Sender)
 	}
 	if c := stateCallbackMessage[user.StateKey]; c != nil {
 		return c(ctx)

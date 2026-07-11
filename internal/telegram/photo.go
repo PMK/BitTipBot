@@ -8,6 +8,7 @@ import (
 	"image/jpeg"
 	"strings"
 
+	"github.com/LightningTipBot/LightningTipBot/internal"
 	"github.com/LightningTipBot/LightningTipBot/internal/telegram/intercept"
 
 	"github.com/LightningTipBot/LightningTipBot/internal/errors"
@@ -37,7 +38,18 @@ func TryRecognizeQrCode(img image.Image) (*gozxing.Result, error) {
 		// invoke payment confirmation ctx
 		return result, nil
 	}
+	if isCashuToken(result.String()) {
+		return result, nil
+	}
 	return nil, fmt.Errorf("no codes found")
+}
+
+// isCashuToken reports whether s looks like a cashu token. The prefix check is
+// case-insensitive but the token itself is returned verbatim: base64 payloads
+// are case-sensitive.
+func isCashuToken(s string) bool {
+	s = strings.ToLower(strings.TrimSpace(s))
+	return strings.HasPrefix(s, "cashua") || strings.HasPrefix(s, "cashub")
 }
 
 // photoHandler is the handler function for every photo from a private chat that the bot receives
@@ -73,6 +85,13 @@ func (bot *TipBot) photoHandler(ctx intercept.Context) (intercept.Context, error
 		log.Errorf("[photoHandler] tryRecognizeQrCodes error: %v\n", err.Error())
 		bot.trySendMessage(m.Sender, Translate(ctx, "photoQrNotRecognizedMessage"))
 		return ctx, err
+	}
+
+	// Cashu token QR: redeem straight to the user's wallet. Checked before the
+	// generic "recognized" echo so the (long) token isn't parroted back.
+	// Lightning invoice/lnurl QR handling below is untouched.
+	if internal.Configuration.Cashu.Enabled && isCashuToken(data.String()) {
+		return bot.redeemCashuToken(ctx, strings.TrimSpace(data.String()), user, m.Sender)
 	}
 
 	bot.trySendMessage(m.Sender, fmt.Sprintf(Translate(ctx, "photoQrRecognizedMessage"), data.String()))
