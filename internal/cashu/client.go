@@ -136,6 +136,41 @@ func (c *Client) MeltQuote(bolt11 string, unit string) (*MeltQuoteResponse, erro
 	return &quote, err
 }
 
+// CheckMeltQuote fetches the current state of a melt quote (NUT-05).
+func (c *Client) CheckMeltQuote(quoteId string) (*MeltQuoteResponse, error) {
+	resp, err := c.http.Get(c.mintURL+"/v1/melt/quote/bolt11/"+quoteId, c.header)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check melt quote: %w", err)
+	}
+	if resp.Response().StatusCode >= 300 {
+		return nil, fmt.Errorf("check melt quote failed with status %d", resp.Response().StatusCode)
+	}
+	var quote MeltQuoteResponse
+	err = resp.ToJSON(&quote)
+	return &quote, err
+}
+
+// WaitMeltPaid polls a melt quote until the mint reports the Lightning payment
+// as completed. A melt is an outbound LN payment from the mint and can
+// legitimately sit in PENDING for seconds — PENDING means wait, not failure.
+func (c *Client) WaitMeltPaid(quoteId string, timeout time.Duration) (bool, error) {
+	deadline := time.Now().Add(timeout)
+	for {
+		q, err := c.CheckMeltQuote(quoteId)
+		if err == nil && q.IsPaid() {
+			return true, nil
+		}
+		if err == nil && q.State == "UNPAID" {
+			// Mint gave up on the payment; proofs stay unspent.
+			return false, nil
+		}
+		if time.Now().After(deadline) {
+			return false, err
+		}
+		time.Sleep(2 * time.Second)
+	}
+}
+
 // Melt submits proofs to the mint which pays the Lightning invoice (NUT-05, step 2).
 func (c *Client) Melt(quoteId string, inputs []Proof) (*MeltResponse, error) {
 	body := MeltRequest{

@@ -480,7 +480,14 @@ func (bot *TipBot) meltProofsToWallet(user *lnbits.User, proofs []cashu.Proof, t
 	if err != nil {
 		return 0, err
 	}
-	if resp.State != "PAID" {
+	if resp.State == "PENDING" || resp.State == "" {
+		// The mint's outbound Lightning payment is in flight — poll until it
+		// settles instead of treating PENDING as failure.
+		paid, werr := bot.CashuClient.WaitMeltPaid(mq.Quote, 45*time.Second)
+		if !paid {
+			return 0, fmt.Errorf("melt not settled (state=%s, err=%v)", resp.State, werr)
+		}
+	} else if resp.State != "PAID" {
 		return 0, fmt.Errorf("melt state: %s", resp.State)
 	}
 	return net, nil

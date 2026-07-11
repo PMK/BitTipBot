@@ -113,7 +113,13 @@ type MeltQuoteResponse struct {
 	Amount     int64  `json:"amount"`
 	FeeReserve int64  `json:"fee_reserve"`
 	State      string `json:"state"` // "UNPAID", "PENDING", "PAID"
+	Paid       bool   `json:"paid"`  // legacy field, pre-"state" mints
 	Expiry     int64  `json:"expiry"`
+}
+
+// IsPaid reports whether the melt completed, handling both API shapes.
+func (q *MeltQuoteResponse) IsPaid() bool {
+	return q.State == "PAID" || (q.State == "" && q.Paid)
 }
 
 // MeltRequest is sent to POST /v1/melt/bolt11 with the proofs (NUT-05 step 2).
