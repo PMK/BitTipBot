@@ -77,7 +77,8 @@ func (bot *TipBot) cashuHandler(ctx intercept.Context) (intercept.Context, error
 
 var (
 	cashuMintConfirmationMenu = &tb.ReplyMarkup{ResizeKeyboard: true}
-	btnConfirmCashuMint       = cashuMintConfirmationMenu.Data("✅ Mint", "confirm_cashu_mint")
+	// 🌱 because you mint it fresh
+	btnConfirmCashuMint = cashuMintConfirmationMenu.Data("🌱 Mint", "confirm_cashu_mint")
 	btnCancelCashuMint        = cashuMintConfirmationMenu.Data("🚫 Cancel", "cancel_cashu_mint")
 	btnCashuTipAmount         = cashuMintConfirmationMenu.Data("", "cashu_tip_amount")
 )
@@ -109,7 +110,7 @@ func (bot *TipBot) cashuTipRecipient(m *tb.Message) (int64, string) {
 
 func (bot *TipBot) makeCashuMintConfirmKeyboard(id string) *tb.ReplyMarkup {
 	menu := &tb.ReplyMarkup{ResizeKeyboard: true}
-	confirmBtn := menu.Data("✅ Mint", "confirm_cashu_mint", id)
+	confirmBtn := menu.Data("🌱 Mint", "confirm_cashu_mint", id)
 	cancelBtn := menu.Data("🚫 Cancel", "cancel_cashu_mint", id)
 	menu.Inline(menu.Row(confirmBtn, cancelBtn))
 	return menu
@@ -157,15 +158,32 @@ func (bot *TipBot) cashuTipHandler(ctx intercept.Context) (intercept.Context, er
 	// Used as a reply to someone's message = tip locked to that user.
 	recipientID, recipientName := bot.cashuTipRecipient(m)
 
-	args := strings.Fields(m.Text)
-	if len(args) > 1 {
-		if amount, err := GetAmount(args[1]); err == nil && amount >= 1 {
-			memo := ""
-			if len(args) > 2 {
-				memo = strings.Join(args[2:], " ")
+	// Flexible args: "/cashutip 21 @user memo", "/cashutip @user 21", ...
+	// First @mention = recipient (wins over reply target), first number =
+	// amount, the rest = memo.
+	var amount int64
+	var memoParts []string
+	for _, arg := range strings.Fields(m.Text)[1:] {
+		if strings.HasPrefix(arg, "@") && len(arg) > 1 {
+			toUser, err := GetUserByTelegramUsername(arg[1:], *bot)
+			if err != nil {
+				bot.trySendMessage(m.Chat, fmt.Sprintf(Translate(ctx, "sendUserHasNoWalletMessage"), str.MarkdownEscape(arg)))
+				return ctx, err
 			}
-			return bot.requestCashuMint(ctx, amount, memo, !m.Private(), m.Chat, recipientID, recipientName)
+			recipientID, recipientName = toUser.Telegram.ID, GetUserStr(toUser.Telegram)
+			continue
 		}
+		if amount == 0 {
+			if a, err := GetAmount(arg); err == nil && a >= 1 {
+				amount = a
+				continue
+			}
+		}
+		memoParts = append(memoParts, arg)
+	}
+
+	if amount > 0 {
+		return bot.requestCashuMint(ctx, amount, strings.Join(memoParts, " "), !m.Private(), m.Chat, recipientID, recipientName)
 	}
 
 	// No amount given: show an amount picker right in the chat. One tap is
