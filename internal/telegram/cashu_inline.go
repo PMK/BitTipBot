@@ -218,34 +218,26 @@ func (bot *TipBot) acceptInlineCashuHandler(ctx intercept.Context) (intercept.Co
 	proofs := token.Token[0].Proofs
 	totalAmount := token.Amount()
 
-	// Create invoice on recipient's wallet
-	invoice, err := to.Wallet.Invoice(lnbits.InvoiceParams{
-		Out:    false,
-		Amount: totalAmount,
-		Memo:   fmt.Sprintf("Cashu ecash claim (%d sat)", totalAmount),
-	}, bot.Client)
+	// Deliver to the claimer by melting the proofs onto their wallet.
+	netAmount, err := bot.meltProofsToWallet(to, proofs, totalAmount)
 	if err != nil {
-		log.Errorf("[cashu claim] Failed to create invoice: %s", err.Error())
+		// Sender was already debited and a token minted, but delivery failed.
+		// Save the token to the sender's wallet so the sats are never lost.
+		rec := &CashuToken{
+			Base:       storage.New(storage.ID(cashuTokenKey(from.Telegram.ID, RandStringRunes(10)))),
+			TelegramID: from.Telegram.ID,
+			Username:   from.Telegram.Username,
+			Amount:     totalAmount,
+			Memo:       inlineCashu.Memo,
+			Token:      tokenStr,
+			State:      cashuStateUnclaimed,
+		}
+		_ = bot.setCashuToken(rec)
+		log.Errorf("[cashu claim] melt to claimer failed, saved token to sender %s: %s", GetUserStr(from.Telegram), err.Error())
+		bot.trySendMessage(from.Telegram, "🥜 Your inline cashu couldn't be delivered, so the token was saved to your wallet — see /cashu list.")
 		return ctx, err
 	}
-
-	// Melt at the mint
-	meltQuote, err := bot.CashuClient.MeltQuote(invoice.PaymentRequest, "sat")
-	if err != nil {
-		log.Errorf("[cashu claim] MeltQuote failed: %s", err.Error())
-		return ctx, err
-	}
-
-	meltResp, err := bot.CashuClient.Melt(meltQuote.Quote, proofs)
-	if err != nil {
-		log.Errorf("[cashu claim] Melt failed: %s", err.Error())
-		return ctx, err
-	}
-
-	if meltResp.State != "PAID" {
-		log.Warnf("[cashu claim] Melt not paid, state: %s", meltResp.State)
-		return ctx, fmt.Errorf("melt state: %s", meltResp.State)
-	}
+	totalAmount = netAmount
 
 	// Mark as claimed
 	inlineCashu.Claimed = true

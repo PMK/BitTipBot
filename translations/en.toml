@@ -418,6 +418,8 @@ cashuHelpText = """🥜 *Cashu ecash tokens*
 `/cashu mint <amount> [memo]` — Create an ecash token
 `/cashu receive <token>` — Redeem a cashu token to your wallet
 `/cashu send <amount> [memo]` — Create a cashu token to share
+`/cashu list` — Show your unclaimed cashu tokens
+`/cashu recover` — Finish any paid-but-unminted tokens
 
 Cashu tokens are digital bearer tokens backed by Bitcoin Lightning. You can copy-paste them, share them offline, or drop them in group chats."""
 
