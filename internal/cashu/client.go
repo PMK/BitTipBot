@@ -190,7 +190,9 @@ func (c *Client) MintTokens(quoteId string, amount int64, memo string) (string, 
 	var activeKeyset *Keyset
 	for i := range keysResp.Keysets {
 		ks := &keysResp.Keysets[i]
-		if ks.Active && ks.Unit == "sat" {
+		// /v1/keys (NUT-01) returns only active keysets and has no "active" field,
+		// so match on unit alone. ponytail: first sat keyset wins, fine for one mint.
+		if ks.Unit == "sat" {
 			activeKeyset = ks
 			break
 		}
