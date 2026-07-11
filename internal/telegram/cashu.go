@@ -258,7 +258,7 @@ func (bot *TipBot) cashuTipAmountHandler(ctx intercept.Context) (intercept.Conte
 	}
 	_ = req.Inactivate(req, bot.Bunt)
 
-	return bot.postCashuShare(ctx, user, c.Message, amount, req.Memo)
+	return bot.postCashuShare(ctx, user, c.Message, amount, req.Memo, req.RecipientID, req.RecipientName)
 }
 
 // requestCashuMint validates a mint/share request and asks for confirmation.
