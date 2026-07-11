@@ -540,6 +540,14 @@ func (bot *TipBot) cashuListHandler(ctx intercept.Context) (intercept.Context, e
 	}
 	bot.trySendMessage(m.Sender, sb.String())
 	for _, c := range unclaimed {
+		// QR first (scannable by any cashu wallet), token text after (copyable).
+		// QR encoding fails for very large tokens (capacity ~3KB) — text still goes out.
+		if qr, err := qrcode.Encode(c.Token, qrcode.Medium, 512); err == nil {
+			bot.trySendMessage(m.Sender, &tb.Photo{
+				File:    tb.FromReader(bytes.NewReader(qr)),
+				Caption: fmt.Sprintf("🥜 %d sat", c.Amount),
+			})
+		}
 		bot.trySendMessage(m.Sender, fmt.Sprintf("🥜 *%d sat*:\n`%s`", c.Amount, c.Token))
 	}
 	return ctx, nil
